@@ -37,7 +37,7 @@ PROMPTS_DIR: Path = _backend_dir / "prompts"
 CLAUDE_MODEL: str = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
 
 # --- Gemini model ---
-GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-live")
+GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-native-audio-latest")
 
 # --- Cleanup interval ---
 CLEANUP_INTERVAL_SECONDS: float = float(os.getenv("CLEANUP_INTERVAL_SECONDS", "60"))

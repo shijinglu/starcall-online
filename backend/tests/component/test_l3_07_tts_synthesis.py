@@ -12,10 +12,14 @@ import time
 
 import pytest
 
+# Ensure .env is loaded before checking the skip condition
+from app.config import GOOGLE_APPLICATION_CREDENTIALS
+
 # Skip entire module if TTS credentials are not configured
 pytestmark = pytest.mark.skipif(
-    not os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    or os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").startswith("/path/to"),
+    not GOOGLE_APPLICATION_CREDENTIALS
+    or GOOGLE_APPLICATION_CREDENTIALS.startswith("/path/to")
+    or not os.path.exists(GOOGLE_APPLICATION_CREDENTIALS),
     reason="GOOGLE_APPLICATION_CREDENTIALS not configured with a real service account",
 )
 

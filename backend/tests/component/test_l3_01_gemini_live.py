@@ -14,7 +14,7 @@ import os
 
 import pytest
 
-from app.config import GEMINI_API_KEY
+from app.config import GEMINI_API_KEY, GEMINI_MODEL
 
 pytestmark = pytest.mark.skipif(not GEMINI_API_KEY, reason="GEMINI_API_KEY not set")
 
@@ -28,7 +28,10 @@ async def test_gemini_live_text_round_trip():
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    client = genai.Client(
+        api_key=GEMINI_API_KEY,
+        http_options=types.HttpOptions(api_version="v1alpha"),
+    )
 
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
@@ -37,17 +40,20 @@ async def test_gemini_live_text_round_trip():
     responses_received = []
 
     async with client.aio.live.connect(
-        model="gemini-2.0-flash-live", config=config
+        model=GEMINI_MODEL, config=config
     ) as session:
-        # Send a simple text message
-        await session.send(input="What is 2 plus 2? Answer in one word.", end_of_turn=True)
+        await session.send_client_content(
+            turns=types.Content(
+                role="user",
+                parts=[types.Part(text="What is 2 plus 2? Answer in one word.")],
+            ),
+            turn_complete=True,
+        )
 
-        # Collect responses with a timeout
         try:
-            async with asyncio.timeout(10):
+            async with asyncio.timeout(15):
                 async for response in session.receive():
                     responses_received.append(response)
-                    # Check if we got audio or text
                     if response.data or response.text:
                         break
                     if response.server_content and response.server_content.turn_complete:
@@ -57,7 +63,6 @@ async def test_gemini_live_text_round_trip():
 
     assert len(responses_received) > 0, "Should receive at least one response from Gemini"
 
-    # Check that we got audio data back
     has_audio = any(r.data for r in responses_received)
     has_text = any(r.text for r in responses_received)
     assert has_audio or has_text, "Should receive audio or text response"
@@ -71,13 +76,15 @@ async def test_gemini_live_audio_round_trip():
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
-
-    config = types.LiveConnectConfig(
-        response_modalities=["AUDIO", "TEXT"],
+    client = genai.Client(
+        api_key=GEMINI_API_KEY,
+        http_options=types.HttpOptions(api_version="v1alpha"),
     )
 
-    # Read pre-recorded PCM file
+    config = types.LiveConnectConfig(
+        response_modalities=["AUDIO"],
+    )
+
     with open(TEST_AUDIO_FILE, "rb") as f:
         pcm_data = f.read()
 
@@ -85,27 +92,23 @@ async def test_gemini_live_audio_round_trip():
     text_responses = []
 
     async with client.aio.live.connect(
-        model="gemini-2.0-flash-live", config=config
+        model=GEMINI_MODEL, config=config
     ) as session:
         # Send audio in chunks (100ms at 16kHz = 3200 bytes)
         chunk_size = 3200
         for i in range(0, len(pcm_data), chunk_size):
             chunk = pcm_data[i : i + chunk_size]
-            await session.send(
-                input={
-                    "realtime_input": {
-                        "media_chunks": [
-                            {"data": chunk, "mime_type": "audio/pcm;rate=16000"}
-                        ]
-                    }
-                }
+            await session.send_realtime_input(
+                media=types.Blob(data=chunk, mime_type="audio/pcm;rate=16000"),
             )
-            await asyncio.sleep(0.1)  # Simulate real-time pacing
+            await asyncio.sleep(0.1)
 
-        # Signal end of audio
-        await session.send(input="", end_of_turn=True)
+        # Signal end of turn
+        await session.send_client_content(
+            turns=types.Content(role="user", parts=[types.Part(text="")]),
+            turn_complete=True,
+        )
 
-        # Collect responses
         try:
             async with asyncio.timeout(15):
                 async for response in session.receive():

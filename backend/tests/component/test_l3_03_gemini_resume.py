@@ -10,7 +10,7 @@ import asyncio
 
 import pytest
 
-from app.config import GEMINI_API_KEY
+from app.config import GEMINI_API_KEY, GEMINI_MODEL
 from app.gemini_proxy import DISPATCH_AGENT_TOOL, RESUME_AGENT_TOOL
 
 pytestmark = pytest.mark.skipif(not GEMINI_API_KEY, reason="GEMINI_API_KEY not set")
@@ -31,15 +31,20 @@ Use resume_agent(agent_session_id, follow_up) for follow-up turns to an idle age
 """
 
 
-@pytest.mark.asyncio
-async def test_resume_agent_on_followup():
-    """After a dispatch, a follow-up should trigger resume_agent, not dispatch_agent."""
+def _make_client():
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    return genai.Client(
+        api_key=GEMINI_API_KEY,
+        http_options=types.HttpOptions(api_version="v1alpha"),
+    )
 
-    config = types.LiveConnectConfig(
+
+def _make_config():
+    from google.genai import types
+
+    return types.LiveConnectConfig(
         system_instruction=types.Content(
             parts=[types.Part(text=SYSTEM_PROMPT)]
         ),
@@ -51,18 +56,30 @@ async def test_resume_agent_on_followup():
                 ]
             )
         ],
-        response_modalities=["TEXT"],
+        response_modalities=["AUDIO"],
     )
+
+
+@pytest.mark.asyncio
+async def test_resume_agent_on_followup():
+    """After a dispatch, a follow-up should trigger resume_agent, not dispatch_agent."""
+    from google.genai import types
+
+    client = _make_client()
+    config = _make_config()
 
     fake_agent_session_id = "aaaa-bbbb-cccc-dddd"
 
     async with client.aio.live.connect(
-        model="gemini-2.0-flash-live", config=config
+        model=GEMINI_MODEL, config=config
     ) as session:
         # Turn 1: dispatch
-        await session.send(
-            input="Analyze my spending patterns for this month.",
-            end_of_turn=True,
+        await session.send_client_content(
+            turns=types.Content(
+                role="user",
+                parts=[types.Part(text="Analyze my spending patterns for this month.")],
+            ),
+            turn_complete=True,
         )
 
         turn1_tool_calls = []
@@ -72,6 +89,7 @@ async def test_resume_agent_on_followup():
                     if response.tool_call:
                         for fn_call in response.tool_call.function_calls:
                             turn1_tool_calls.append(fn_call)
+                        break
                     if response.server_content and response.server_content.turn_complete:
                         break
         except TimeoutError:
@@ -79,57 +97,65 @@ async def test_resume_agent_on_followup():
 
         # If we got a dispatch_agent, send back a tool response with a fake session id
         dispatched = [tc for tc in turn1_tool_calls if tc.name == "dispatch_agent"]
-        if dispatched:
-            fn_response = types.FunctionResponse(
-                name="dispatch_agent",
-                response={
-                    "status": "dispatched",
-                    "agent_session_id": fake_agent_session_id,
-                },
-            )
-            await session.send(input=fn_response)
-
-            # Wait for Gemini to process the tool response
-            try:
-                async with asyncio.timeout(10):
-                    async for response in session.receive():
-                        if response.server_content and response.server_content.turn_complete:
-                            break
-            except TimeoutError:
-                pass
-
-            # Turn 2: follow-up targeting same agent
-            await session.send(
-                input=f"What about last month? (The agent session id is {fake_agent_session_id})",
-                end_of_turn=True,
-            )
-
-            turn2_tool_calls = []
-            try:
-                async with asyncio.timeout(15):
-                    async for response in session.receive():
-                        if response.tool_call:
-                            for fn_call in response.tool_call.function_calls:
-                                turn2_tool_calls.append(fn_call)
-                        if response.server_content and response.server_content.turn_complete:
-                            break
-            except TimeoutError:
-                pass
-
-            # Turn 2 should use resume_agent, not dispatch_agent
-            resume_calls = [tc for tc in turn2_tool_calls if tc.name == "resume_agent"]
-            dispatch_calls = [tc for tc in turn2_tool_calls if tc.name == "dispatch_agent"]
-
-            if turn2_tool_calls:
-                # If Gemini emitted any tool call, prefer resume_agent
-                assert len(resume_calls) >= 1 or len(dispatch_calls) == 0, (
-                    f"Expected resume_agent for follow-up. Got: {[tc.name for tc in turn2_tool_calls]}"
-                )
-
-                # Validate resume_agent schema
-                for rc in resume_calls:
-                    assert "agent_session_id" in rc.args, "resume_agent should have agent_session_id"
-                    assert "follow_up" in rc.args, "resume_agent should have follow_up"
-                    assert len(rc.args["follow_up"]) > 0, "follow_up should be non-empty"
-        else:
+        if not dispatched:
             pytest.skip("Gemini did not emit dispatch_agent on turn 1; cannot test resume")
+
+        await session.send_tool_response(
+            function_responses=[
+                types.FunctionResponse(
+                    name="dispatch_agent",
+                    id=dispatched[0].id,
+                    response={
+                        "status": "dispatched",
+                        "agent_session_id": fake_agent_session_id,
+                    },
+                )
+            ]
+        )
+
+        # Wait for Gemini to process the tool response
+        try:
+            async with asyncio.timeout(10):
+                async for response in session.receive():
+                    if response.server_content and response.server_content.turn_complete:
+                        break
+        except TimeoutError:
+            pass
+
+        # Turn 2: follow-up targeting same agent
+        await session.send_client_content(
+            turns=types.Content(
+                role="user",
+                parts=[types.Part(
+                    text=f"What about last month? The agent session id is {fake_agent_session_id}"
+                )],
+            ),
+            turn_complete=True,
+        )
+
+        turn2_tool_calls = []
+        try:
+            async with asyncio.timeout(15):
+                async for response in session.receive():
+                    if response.tool_call:
+                        for fn_call in response.tool_call.function_calls:
+                            turn2_tool_calls.append(fn_call)
+                        break
+                    if response.server_content and response.server_content.turn_complete:
+                        break
+        except TimeoutError:
+            pass
+
+        # Turn 2 should use resume_agent, not dispatch_agent
+        resume_calls = [tc for tc in turn2_tool_calls if tc.name == "resume_agent"]
+        dispatch_calls = [tc for tc in turn2_tool_calls if tc.name == "dispatch_agent"]
+
+        if turn2_tool_calls:
+            assert len(resume_calls) >= 1 or len(dispatch_calls) == 0, (
+                f"Expected resume_agent for follow-up. Got: {[tc.name for tc in turn2_tool_calls]}"
+            )
+
+            for rc in resume_calls:
+                assert "agent_session_id" in rc.args, "resume_agent should have agent_session_id"
+                assert "follow_up" in rc.args, "resume_agent should have follow_up"
+                assert len(rc.args["follow_up"]) > 0, "follow_up should be non-empty"

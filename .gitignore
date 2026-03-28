@@ -420,8 +420,12 @@ fabric.properties
 # Android studio 3.1+ serialized cache file
 .idea/caches/build_file_checksums.ser
 
-# Environment secrets
+# Environment and secrets
 .env
+secrets/
+
+# Swift Package Manager build artifacts
+.build/
 
 # Xcode user data
 xcuserdata/

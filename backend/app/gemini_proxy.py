@@ -113,7 +113,10 @@ class GeminiLiveProxy:
 
         from app.config import GEMINI_API_KEY, GEMINI_MODEL
 
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        client = genai.Client(
+            api_key=GEMINI_API_KEY,
+            http_options=types.HttpOptions(api_version="v1alpha"),
+        )
         system_prompt = build_system_prompt(self._registry)
 
         config = types.LiveConnectConfig(

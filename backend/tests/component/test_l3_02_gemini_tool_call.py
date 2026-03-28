@@ -10,7 +10,7 @@ import asyncio
 
 import pytest
 
-from app.config import GEMINI_API_KEY
+from app.config import GEMINI_API_KEY, GEMINI_MODEL
 from app.gemini_proxy import DISPATCH_AGENT_TOOL, RESUME_AGENT_TOOL
 
 pytestmark = pytest.mark.skipif(not GEMINI_API_KEY, reason="GEMINI_API_KEY not set")
@@ -31,15 +31,20 @@ Use resume_agent(agent_session_id, follow_up) for follow-up turns.
 """
 
 
-@pytest.mark.asyncio
-async def test_dispatch_agent_tool_call():
-    """Gemini should emit dispatch_agent when asked a complex analytical question."""
+def _make_client():
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    return genai.Client(
+        api_key=GEMINI_API_KEY,
+        http_options=types.HttpOptions(api_version="v1alpha"),
+    )
 
-    config = types.LiveConnectConfig(
+
+def _make_config_with_tools():
+    from google.genai import types
+
+    return types.LiveConnectConfig(
         system_instruction=types.Content(
             parts=[types.Part(text=SYSTEM_PROMPT)]
         ),
@@ -51,17 +56,29 @@ async def test_dispatch_agent_tool_call():
                 ]
             )
         ],
-        response_modalities=["TEXT"],
+        response_modalities=["AUDIO"],
     )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_agent_tool_call():
+    """Gemini should emit dispatch_agent when asked a complex analytical question."""
+    from google.genai import types
+
+    client = _make_client()
+    config = _make_config_with_tools()
 
     tool_calls = []
 
     async with client.aio.live.connect(
-        model="gemini-2.0-flash-live", config=config
+        model=GEMINI_MODEL, config=config
     ) as session:
-        await session.send(
-            input="Analyze my spending patterns for this month and give me a risk summary.",
-            end_of_turn=True,
+        await session.send_client_content(
+            turns=types.Content(
+                role="user",
+                parts=[types.Part(text="Analyze my spending patterns for this month and give me a risk summary.")],
+            ),
+            turn_complete=True,
         )
 
         try:
@@ -70,6 +87,7 @@ async def test_dispatch_agent_tool_call():
                     if response.tool_call:
                         for fn_call in response.tool_call.function_calls:
                             tool_calls.append(fn_call)
+                        break
                     if response.server_content and response.server_content.turn_complete:
                         break
         except TimeoutError:
@@ -94,34 +112,22 @@ async def test_dispatch_agent_tool_call():
 @pytest.mark.asyncio
 async def test_no_hallucinated_tool_names():
     """Gemini should not emit tool calls with names not in the declared tools."""
-    from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
-
-    config = types.LiveConnectConfig(
-        system_instruction=types.Content(
-            parts=[types.Part(text=SYSTEM_PROMPT)]
-        ),
-        tools=[
-            types.Tool(
-                function_declarations=[
-                    types.FunctionDeclaration(**DISPATCH_AGENT_TOOL),
-                    types.FunctionDeclaration(**RESUME_AGENT_TOOL),
-                ]
-            )
-        ],
-        response_modalities=["TEXT"],
-    )
+    client = _make_client()
+    config = _make_config_with_tools()
 
     tool_calls = []
 
     async with client.aio.live.connect(
-        model="gemini-2.0-flash-live", config=config
+        model=GEMINI_MODEL, config=config
     ) as session:
-        await session.send(
-            input="Check my fraud signals and verify my identity.",
-            end_of_turn=True,
+        await session.send_client_content(
+            turns=types.Content(
+                role="user",
+                parts=[types.Part(text="Check my fraud signals and verify my identity.")],
+            ),
+            turn_complete=True,
         )
 
         try:
@@ -130,6 +136,7 @@ async def test_no_hallucinated_tool_names():
                     if response.tool_call:
                         for fn_call in response.tool_call.function_calls:
                             tool_calls.append(fn_call)
+                        break
                     if response.server_content and response.server_content.turn_complete:
                         break
         except TimeoutError:

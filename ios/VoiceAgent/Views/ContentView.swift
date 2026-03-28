@@ -7,10 +7,12 @@ import SwiftUI
 /// - Agent status row (middle)
 /// - Meeting progress bar (when active)
 /// - Mic waveform + start/stop button (bottom)
-struct ContentView: View {
+public struct ContentView: View {
     @StateObject private var viewModel = ConversationViewModel()
 
-    var body: some View {
+    public init() {}
+
+    public var body: some View {
         VStack(spacing: 0) {
             // MARK: - Transcript
             transcriptSection

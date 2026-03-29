@@ -154,8 +154,9 @@ class GeminiLiveProxy:
     async def send_tool_response(
         self,
         session: "ConversationSession",
-        tool_call_id: str,
+        fn_name: str,
         result: dict,
+        fn_call_id: str | None = None,
     ) -> None:
         """Send a function call response back to Gemini."""
         if session.gemini_session is None:
@@ -164,8 +165,16 @@ class GeminiLiveProxy:
         from google.genai import types
 
         fn_response = types.FunctionResponse(
-            name=tool_call_id,
+            name=fn_name,
+            id=fn_call_id,
             response=result,
+        )
+        logger.info(
+            "[session=%s] Sending tool response for %s (id=%s): %s",
+            session.session_id,
+            fn_name,
+            fn_call_id,
+            result,
         )
         await session.gemini_session.send_tool_response(function_responses=fn_response)
 
@@ -347,6 +356,13 @@ class GeminiLiveProxy:
 
     async def _handle_tool_call(self, session: "ConversationSession", fn_call) -> None:
         name = fn_call.name
+        logger.info(
+            "[session=%s] Tool call received: %s (id=%s) args=%s",
+            session.session_id,
+            name,
+            fn_call.id,
+            fn_call.args,
+        )
         if name == "dispatch_agent":
             await self._handle_dispatch_agent(session, fn_call)
         elif name == "resume_agent":
@@ -355,11 +371,12 @@ class GeminiLiveProxy:
             logger.warning("Unknown Gemini tool call: %s", name)
             await self.send_tool_response(
                 session,
-                fn_call.id,
+                name or "unknown",
                 {
                     "error": "unknown_tool",
                     "message": f"No handler for tool '{name}'",
                 },
+                fn_call_id=fn_call.id,
             )
 
     async def _handle_dispatch_agent(
@@ -368,15 +385,22 @@ class GeminiLiveProxy:
         """Handle dispatch_agent tool call from Gemini."""
         agent_name = fn_call.args.get("name", "")
         task = fn_call.args.get("task", "")
+        logger.info(
+            "[session=%s] Dispatching agent %s with task: %s",
+            session.session_id,
+            agent_name,
+            task[:120],
+        )
 
         if agent_name not in self._registry:
             await self.send_tool_response(
                 session,
-                fn_call.id,
+                "dispatch_agent",
                 {
                     "error": "unknown_agent",
                     "message": f"No agent named '{agent_name}'",
                 },
+                fn_call_id=fn_call.id,
             )
             return
 
@@ -384,11 +408,12 @@ class GeminiLiveProxy:
 
         await self.send_tool_response(
             session,
-            fn_call.id,
+            "dispatch_agent",
             {
                 "status": "dispatched",
                 "agent_session_id": agent_session_id,
             },
+            fn_call_id=fn_call.id,
         )
 
         if self.send_json:
@@ -414,24 +439,28 @@ class GeminiLiveProxy:
         if agent_session is None:
             await self.send_tool_response(
                 session,
-                fn_call.id,
+                "resume_agent",
                 {
                     "error": "session_not_found",
                     "message": f"No agent session {agent_session_id}",
                 },
+                fn_call_id=fn_call.id,
             )
             return
 
         if agent_session.status == "active":
             await self.send_tool_response(
                 session,
-                fn_call.id,
+                "resume_agent",
                 {
                     "error": "agent_busy",
                     "message": f"{agent_session.agent_name.capitalize()} is still working on your previous request",
                 },
+                fn_call_id=fn_call.id,
             )
             return
 
         await self._atm.resume(session, agent_session, follow_up)
-        await self.send_tool_response(session, fn_call.id, {"status": "resumed"})
+        await self.send_tool_response(
+            session, "resume_agent", {"status": "resumed"}, fn_call_id=fn_call.id
+        )

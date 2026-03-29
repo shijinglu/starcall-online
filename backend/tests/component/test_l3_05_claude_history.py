@@ -11,7 +11,9 @@ import pytest
 
 from app.config import ANTHROPIC_API_KEY
 
-pytestmark = pytest.mark.skipif(not ANTHROPIC_API_KEY, reason="ANTHROPIC_API_KEY not set")
+pytestmark = pytest.mark.skipif(
+    not ANTHROPIC_API_KEY, reason="ANTHROPIC_API_KEY not set"
+)
 
 
 @pytest.fixture
@@ -34,7 +36,10 @@ async def test_history_continuity_across_turns(client):
         model="claude-sonnet-4-20250514",
         system=SHIJING_SYSTEM_PROMPT,
         messages=[
-            {"role": "user", "content": "The user's risk score is 73 out of 100, classified as medium-high risk."}
+            {
+                "role": "user",
+                "content": "The user's risk score is 73 out of 100, classified as medium-high risk.",
+            }
         ],
         max_tokens=512,
     )
@@ -42,9 +47,15 @@ async def test_history_continuity_across_turns(client):
 
     # Build history for turn 2
     messages = [
-        {"role": "user", "content": "The user's risk score is 73 out of 100, classified as medium-high risk."},
+        {
+            "role": "user",
+            "content": "The user's risk score is 73 out of 100, classified as medium-high risk.",
+        },
         {"role": "assistant", "content": turn1_text},
-        {"role": "user", "content": "Why is it that value? What factors typically drive a score like that?"},
+        {
+            "role": "user",
+            "content": "Why is it that value? What factors typically drive a score like that?",
+        },
     ]
 
     # Turn 2: follow-up referencing turn 1
@@ -62,15 +73,17 @@ async def test_history_continuity_across_turns(client):
         keyword in turn2_lower
         for keyword in ["73", "medium-high", "risk", "score", "factor"]
     )
-    assert has_context, (
-        f"Turn 2 should reference context from turn 1. Got: {turn2_text[:200]}"
-    )
+    assert (
+        has_context
+    ), f"Turn 2 should reference context from turn 1. Got: {turn2_text[:200]}"
 
     # Turn 2 should NOT ask "what is the risk score?" since it was already provided
     asking_again = any(
         phrase in turn2_lower
-        for phrase in ["what is the risk score", "what's the risk score", "could you provide"]
+        for phrase in [
+            "what is the risk score",
+            "what's the risk score",
+            "could you provide",
+        ]
     )
-    assert not asking_again, (
-        f"Turn 2 should NOT re-ask for information already given. Got: {turn2_text[:200]}"
-    )
+    assert not asking_again, f"Turn 2 should NOT re-ask for information already given. Got: {turn2_text[:200]}"

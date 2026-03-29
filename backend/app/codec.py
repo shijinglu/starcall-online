@@ -49,7 +49,9 @@ def encode_frame(
     pcm: bytes,
 ) -> bytes:
     """Encode a binary audio frame with a 4-byte header."""
-    header = struct.pack(HEADER_FMT, msg_type, speaker_id, gen_id & 0xFF, frame_seq & 0xFF)
+    header = struct.pack(
+        HEADER_FMT, msg_type, speaker_id, gen_id & 0xFF, frame_seq & 0xFF
+    )
     return header + pcm
 
 
@@ -61,7 +63,9 @@ def decode_frame(data: bytes) -> tuple[int, int, int, int, bytes]:
     """
     if len(data) < HEADER_SIZE:
         raise ValueError(f"Frame too short: {len(data)} bytes")
-    msg_type, speaker_id, gen_id, frame_seq = struct.unpack(HEADER_FMT, data[:HEADER_SIZE])
+    msg_type, speaker_id, gen_id, frame_seq = struct.unpack(
+        HEADER_FMT, data[:HEADER_SIZE]
+    )
     return msg_type, speaker_id, gen_id, frame_seq, data[HEADER_SIZE:]
 
 

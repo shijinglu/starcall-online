@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from fastapi import FastAPI
 
@@ -20,15 +22,30 @@ from app.session_manager import SessionManager
 from app.tts_service import TTSService
 from app.ws.handler import (
     init_ws_handler,
-    router as ws_router,
     send_agent_audio,
     send_audio_response,
     send_json_msg,
 )
+from app.ws.handler import (
+    router as ws_router,
+)
+
+LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+
+LOG_FORMAT = "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
+    format=LOG_FORMAT,
+    handlers=[
+        logging.StreamHandler(),
+        RotatingFileHandler(
+            LOG_DIR / "app.log",
+            maxBytes=10 * 1024 * 1024,  # 10 MB
+            backupCount=5,
+        ),
+    ],
 )
 logger = logging.getLogger(__name__)
 

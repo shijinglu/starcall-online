@@ -4,7 +4,9 @@ import Foundation
 final class HTTPClient {
 
     /// Default server URL.
-    static let defaultServerURL = URL(string: "http://localhost:8000")!
+    /// Use the Mac's local IP when running on a real device.
+    /// Change this to "http://localhost:8000" for Simulator.
+    static let defaultServerURL = URL(string: "http://192.168.1.156:8000")!
 
     private let urlSession: URLSession
     private let decoder: JSONDecoder
@@ -12,7 +14,6 @@ final class HTTPClient {
     init(urlSession: URLSession = .shared) {
         self.urlSession = urlSession
         self.decoder = JSONDecoder()
-        self.decoder.keyDecodingStrategy = .convertFromSnakeCase
     }
 
     // MARK: - Session Management
@@ -28,18 +29,28 @@ final class HTTPClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
+        Log.info("POST \(url)", tag: "HTTPClient")
         let (data, response) = try await urlSession.data(for: request)
+        let bodyStr = String(data: data, encoding: .utf8) ?? "<non-utf8>"
 
         guard let httpResponse = response as? HTTPURLResponse else {
+            Log.error("Invalid response (not HTTP)", tag: "HTTPClient")
             throw HTTPClientError.invalidResponse
         }
 
+        Log.info("POST \(url) -> \(httpResponse.statusCode), body=\(bodyStr.prefix(500))", tag: "HTTPClient")
+
         guard httpResponse.statusCode == 200 else {
-            throw HTTPClientError.httpError(statusCode: httpResponse.statusCode, body: String(data: data, encoding: .utf8))
+            throw HTTPClientError.httpError(statusCode: httpResponse.statusCode, body: bodyStr)
         }
 
-        let sessionResponse = try decoder.decode(CreateSessionResponse.self, from: data)
-        return (sessionResponse.sessionId, sessionResponse.authToken)
+        do {
+            let sessionResponse = try decoder.decode(CreateSessionResponse.self, from: data)
+            return (sessionResponse.sessionId, sessionResponse.authToken)
+        } catch {
+            Log.error("Decode failed: \(error), body=\(bodyStr.prefix(500))", tag: "HTTPClient")
+            throw error
+        }
     }
 
     /// Delete (terminate) an existing conversation session.

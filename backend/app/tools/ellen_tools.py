@@ -25,7 +25,12 @@ async def task_list(**kwargs) -> dict:
     """Return a plausible to-do list."""
     return {
         "tasks": [
-            {"id": 1, "title": "Review fraud report", "due": "today", "priority": "high"},
+            {
+                "id": 1,
+                "title": "Review fraud report",
+                "due": "today",
+                "priority": "high",
+            },
             {"id": 2, "title": "Schedule weekly sync", "due": "tomorrow"},
         ]
     }

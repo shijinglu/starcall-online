@@ -74,22 +74,36 @@ class AgentTaskManager:
 
         # Fix 6: Emit thinking{elapsed_ms=0} immediately so the UI spinner shows instantly
         if self.send_json:
-            await self.send_json(conv_session, {
-                "type": "agent_status",
-                "agent_name": agent_name,
-                "agent_session_id": agent_session.agent_session_id,
-                "status": "thinking",
-                "elapsed_ms": 0,
-                "gen_id": conv_session.gen_id,
-            })
+            await self.send_json(
+                conv_session,
+                {
+                    "type": "agent_status",
+                    "agent_name": agent_name,
+                    "agent_session_id": agent_session.agent_session_id,
+                    "status": "thinking",
+                    "elapsed_ms": 0,
+                    "gen_id": conv_session.gen_id,
+                },
+            )
 
         # If meeting mode is active (more than one agent), add to queue
-        if len(conv_session.meeting_queue) > 0 or len(
-            [s for s in conv_session.agent_sessions.values() if s.status == "active"]
-        ) > 1:
+        if (
+            len(conv_session.meeting_queue) > 0
+            or len(
+                [
+                    s
+                    for s in conv_session.agent_sessions.values()
+                    if s.status == "active"
+                ]
+            )
+            > 1
+        ):
             conv_session.meeting_queue.append(agent_session.agent_session_id)
             # Launch the meeting sender task if not already running
-            if conv_session.meeting_sender_task is None or conv_session.meeting_sender_task.done():
+            if (
+                conv_session.meeting_sender_task is None
+                or conv_session.meeting_sender_task.done()
+            ):
                 conv_session.meeting_sender_task = asyncio.create_task(
                     self._meeting_mode_audio_sender(conv_session)
                 )
@@ -117,14 +131,17 @@ class AgentTaskManager:
 
         # Fix 6: immediate thinking indicator
         if self.send_json:
-            await self.send_json(conv_session, {
-                "type": "agent_status",
-                "agent_name": agent_session.agent_name,
-                "agent_session_id": agent_session.agent_session_id,
-                "status": "thinking",
-                "elapsed_ms": 0,
-                "gen_id": conv_session.gen_id,
-            })
+            await self.send_json(
+                conv_session,
+                {
+                    "type": "agent_status",
+                    "agent_name": agent_session.agent_name,
+                    "agent_session_id": agent_session.agent_session_id,
+                    "status": "thinking",
+                    "elapsed_ms": 0,
+                    "gen_id": conv_session.gen_id,
+                },
+            )
 
         agent_session.claude_task = asyncio.create_task(
             self._run_agent(conv_session, agent_session, follow_up)
@@ -146,7 +163,10 @@ class AgentTaskManager:
                 if agent_session.claude_task and not agent_session.claude_task.done():
                     agent_session.claude_task.cancel()
             # Cancel meeting sender task
-            if conv_session.meeting_sender_task and not conv_session.meeting_sender_task.done():
+            if (
+                conv_session.meeting_sender_task
+                and not conv_session.meeting_sender_task.done()
+            ):
                 conv_session.meeting_sender_task.cancel()
             conv_session.meeting_queue.clear()
 
@@ -186,13 +206,16 @@ class AgentTaskManager:
             )
             agent_session.status = "idle"
             if self.send_json:
-                await self.send_json(conv_session, {
-                    "type": "agent_status",
-                    "agent_name": agent_session.agent_name,
-                    "agent_session_id": agent_session.agent_session_id,
-                    "status": "done",
-                    "gen_id": conv_session.gen_id,
-                })
+                await self.send_json(
+                    conv_session,
+                    {
+                        "type": "agent_status",
+                        "agent_name": agent_session.agent_name,
+                        "agent_session_id": agent_session.agent_session_id,
+                        "status": "done",
+                        "gen_id": conv_session.gen_id,
+                    },
+                )
         except asyncio.TimeoutError:
             await self._handle_timeout(conv_session, agent_session)
         except asyncio.CancelledError:
@@ -227,14 +250,17 @@ class AgentTaskManager:
                 break
             elapsed_ms = int((time.time() - start) * 1000)
             if self.send_json:
-                await self.send_json(conv_session, {
-                    "type": "agent_status",
-                    "agent_name": agent_session.agent_name,
-                    "agent_session_id": agent_session.agent_session_id,
-                    "status": "thinking",
-                    "elapsed_ms": elapsed_ms,
-                    "gen_id": conv_session.gen_id,
-                })
+                await self.send_json(
+                    conv_session,
+                    {
+                        "type": "agent_status",
+                        "agent_name": agent_session.agent_name,
+                        "agent_session_id": agent_session.agent_session_id,
+                        "status": "thinking",
+                        "elapsed_ms": elapsed_ms,
+                        "gen_id": conv_session.gen_id,
+                    },
+                )
 
     # ------------------------------------------------------------------
     # Timeout handling
@@ -249,13 +275,16 @@ class AgentTaskManager:
         agent_session.status = "timeout"
 
         if self.send_json:
-            await self.send_json(conv_session, {
-                "type": "agent_status",
-                "agent_name": agent_session.agent_name,
-                "agent_session_id": agent_session.agent_session_id,
-                "status": "timeout",
-                "gen_id": conv_session.gen_id,
-            })
+            await self.send_json(
+                conv_session,
+                {
+                    "type": "agent_status",
+                    "agent_name": agent_session.agent_name,
+                    "agent_session_id": agent_session.agent_session_id,
+                    "status": "timeout",
+                    "gen_id": conv_session.gen_id,
+                },
+            )
 
         # Fix 9: Append a sentinel assistant turn so resume() doesn't produce
         # malformed consecutive-user-messages history.
@@ -347,18 +376,21 @@ class AgentTaskManager:
                 )
                 total = len(conv_session.agent_sessions)
                 if self.send_json:
-                    await self.send_json(conv_session, {
-                        "type": "meeting_status",
-                        "gen_id": conv_session.gen_id,
-                        "total_agents": total,
-                        "completed": completed,
-                        "pending": list(conv_session.meeting_queue),
-                        "failed": [
-                            s.agent_name
-                            for s in conv_session.agent_sessions.values()
-                            if s.status == "timeout"
-                        ],
-                    })
+                    await self.send_json(
+                        conv_session,
+                        {
+                            "type": "meeting_status",
+                            "gen_id": conv_session.gen_id,
+                            "total_agents": total,
+                            "completed": completed,
+                            "pending": list(conv_session.meeting_queue),
+                            "failed": [
+                                s.agent_name
+                                for s in conv_session.agent_sessions.values()
+                                if s.status == "timeout"
+                            ],
+                        },
+                    )
         except asyncio.CancelledError:
             pass
         except Exception as exc:

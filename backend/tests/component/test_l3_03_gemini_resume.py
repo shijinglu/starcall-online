@@ -45,9 +45,7 @@ def _make_config():
     from google.genai import types
 
     return types.LiveConnectConfig(
-        system_instruction=types.Content(
-            parts=[types.Part(text=SYSTEM_PROMPT)]
-        ),
+        system_instruction=types.Content(parts=[types.Part(text=SYSTEM_PROMPT)]),
         tools=[
             types.Tool(
                 function_declarations=[
@@ -70,9 +68,7 @@ async def test_resume_agent_on_followup():
 
     fake_agent_session_id = "aaaa-bbbb-cccc-dddd"
 
-    async with client.aio.live.connect(
-        model=GEMINI_MODEL, config=config
-    ) as session:
+    async with client.aio.live.connect(model=GEMINI_MODEL, config=config) as session:
         # Turn 1: dispatch
         await session.send_client_content(
             turns=types.Content(
@@ -90,7 +86,10 @@ async def test_resume_agent_on_followup():
                         for fn_call in response.tool_call.function_calls:
                             turn1_tool_calls.append(fn_call)
                         break
-                    if response.server_content and response.server_content.turn_complete:
+                    if (
+                        response.server_content
+                        and response.server_content.turn_complete
+                    ):
                         break
         except TimeoutError:
             pass
@@ -98,7 +97,9 @@ async def test_resume_agent_on_followup():
         # If we got a dispatch_agent, send back a tool response with a fake session id
         dispatched = [tc for tc in turn1_tool_calls if tc.name == "dispatch_agent"]
         if not dispatched:
-            pytest.skip("Gemini did not emit dispatch_agent on turn 1; cannot test resume")
+            pytest.skip(
+                "Gemini did not emit dispatch_agent on turn 1; cannot test resume"
+            )
 
         await session.send_tool_response(
             function_responses=[
@@ -117,7 +118,10 @@ async def test_resume_agent_on_followup():
         try:
             async with asyncio.timeout(10):
                 async for response in session.receive():
-                    if response.server_content and response.server_content.turn_complete:
+                    if (
+                        response.server_content
+                        and response.server_content.turn_complete
+                    ):
                         break
         except TimeoutError:
             pass
@@ -126,9 +130,11 @@ async def test_resume_agent_on_followup():
         await session.send_client_content(
             turns=types.Content(
                 role="user",
-                parts=[types.Part(
-                    text=f"What about last month? The agent session id is {fake_agent_session_id}"
-                )],
+                parts=[
+                    types.Part(
+                        text=f"What about last month? The agent session id is {fake_agent_session_id}"
+                    )
+                ],
             ),
             turn_complete=True,
         )
@@ -141,7 +147,10 @@ async def test_resume_agent_on_followup():
                         for fn_call in response.tool_call.function_calls:
                             turn2_tool_calls.append(fn_call)
                         break
-                    if response.server_content and response.server_content.turn_complete:
+                    if (
+                        response.server_content
+                        and response.server_content.turn_complete
+                    ):
                         break
         except TimeoutError:
             pass
@@ -151,11 +160,13 @@ async def test_resume_agent_on_followup():
         dispatch_calls = [tc for tc in turn2_tool_calls if tc.name == "dispatch_agent"]
 
         if turn2_tool_calls:
-            assert len(resume_calls) >= 1 or len(dispatch_calls) == 0, (
-                f"Expected resume_agent for follow-up. Got: {[tc.name for tc in turn2_tool_calls]}"
-            )
+            assert (
+                len(resume_calls) >= 1 or len(dispatch_calls) == 0
+            ), f"Expected resume_agent for follow-up. Got: {[tc.name for tc in turn2_tool_calls]}"
 
             for rc in resume_calls:
-                assert "agent_session_id" in rc.args, "resume_agent should have agent_session_id"
+                assert (
+                    "agent_session_id" in rc.args
+                ), "resume_agent should have agent_session_id"
                 assert "follow_up" in rc.args, "resume_agent should have follow_up"
                 assert len(rc.args["follow_up"]) > 0, "follow_up should be non-empty"

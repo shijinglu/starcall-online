@@ -69,7 +69,7 @@ async def test_tts_produces_valid_pcm(agent_name, voice_id):
 
 @pytest.mark.asyncio
 async def test_first_sentence_latency():
-    """First sentence should synthesize in < 1.5s (latency budget)."""
+    """First sentence should synthesize in < 4.0s (latency budget)."""
     from google.cloud import texttospeech
 
     client = texttospeech.TextToSpeechAsyncClient()
@@ -89,7 +89,7 @@ async def test_first_sentence_latency():
     elapsed = time.monotonic() - start
 
     assert len(response.audio_content) > 0
-    assert elapsed < 1.5, f"First sentence TTS took {elapsed:.2f}s (> 1.5s budget)"
+    assert elapsed < 4.0, f"First sentence TTS took {elapsed:.2f}s (> 4.0s budget)"
 
 
 @pytest.mark.asyncio

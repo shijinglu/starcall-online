@@ -45,9 +45,7 @@ def _make_config_with_tools():
     from google.genai import types
 
     return types.LiveConnectConfig(
-        system_instruction=types.Content(
-            parts=[types.Part(text=SYSTEM_PROMPT)]
-        ),
+        system_instruction=types.Content(parts=[types.Part(text=SYSTEM_PROMPT)]),
         tools=[
             types.Tool(
                 function_declarations=[
@@ -70,13 +68,15 @@ async def test_dispatch_agent_tool_call():
 
     tool_calls = []
 
-    async with client.aio.live.connect(
-        model=GEMINI_MODEL, config=config
-    ) as session:
+    async with client.aio.live.connect(model=GEMINI_MODEL, config=config) as session:
         await session.send_client_content(
             turns=types.Content(
                 role="user",
-                parts=[types.Part(text="Analyze my spending patterns for this month and give me a risk summary.")],
+                parts=[
+                    types.Part(
+                        text="Analyze my spending patterns for this month and give me a risk summary."
+                    )
+                ],
             ),
             turn_complete=True,
         )
@@ -88,24 +88,30 @@ async def test_dispatch_agent_tool_call():
                         for fn_call in response.tool_call.function_calls:
                             tool_calls.append(fn_call)
                         break
-                    if response.server_content and response.server_content.turn_complete:
+                    if (
+                        response.server_content
+                        and response.server_content.turn_complete
+                    ):
                         break
         except TimeoutError:
             pass
 
     # Should have at least one dispatch_agent call
     dispatch_calls = [tc for tc in tool_calls if tc.name == "dispatch_agent"]
-    assert len(dispatch_calls) >= 1, (
-        f"Expected dispatch_agent call, got: {[tc.name for tc in tool_calls]}"
-    )
+    assert (
+        len(dispatch_calls) >= 1
+    ), f"Expected dispatch_agent call, got: {[tc.name for tc in tool_calls]}"
 
     # Validate schema
     for dc in dispatch_calls:
         assert "name" in dc.args, "dispatch_agent should have 'name' field"
         assert "task" in dc.args, "dispatch_agent should have 'task' field"
-        assert dc.args["name"] in {"ellen", "shijing", "eva", "ming"}, (
-            f"Agent name should be valid, got: {dc.args['name']}"
-        )
+        assert dc.args["name"] in {
+            "ellen",
+            "shijing",
+            "eva",
+            "ming",
+        }, f"Agent name should be valid, got: {dc.args['name']}"
         assert len(dc.args["task"]) > 0, "Task should be non-empty"
 
 
@@ -119,13 +125,13 @@ async def test_no_hallucinated_tool_names():
 
     tool_calls = []
 
-    async with client.aio.live.connect(
-        model=GEMINI_MODEL, config=config
-    ) as session:
+    async with client.aio.live.connect(model=GEMINI_MODEL, config=config) as session:
         await session.send_client_content(
             turns=types.Content(
                 role="user",
-                parts=[types.Part(text="Check my fraud signals and verify my identity.")],
+                parts=[
+                    types.Part(text="Check my fraud signals and verify my identity.")
+                ],
             ),
             turn_complete=True,
         )
@@ -137,13 +143,16 @@ async def test_no_hallucinated_tool_names():
                         for fn_call in response.tool_call.function_calls:
                             tool_calls.append(fn_call)
                         break
-                    if response.server_content and response.server_content.turn_complete:
+                    if (
+                        response.server_content
+                        and response.server_content.turn_complete
+                    ):
                         break
         except TimeoutError:
             pass
 
     valid_names = {"dispatch_agent", "resume_agent"}
     for tc in tool_calls:
-        assert tc.name in valid_names, (
-            f"Hallucinated tool name: {tc.name}. Only {valid_names} are valid."
-        )
+        assert (
+            tc.name in valid_names
+        ), f"Hallucinated tool name: {tc.name}. Only {valid_names} are valid."

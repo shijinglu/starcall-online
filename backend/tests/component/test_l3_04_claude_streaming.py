@@ -14,7 +14,9 @@ import pytest
 from app.config import ANTHROPIC_API_KEY
 from app.deep_agent_runner import split_into_sentences
 
-pytestmark = pytest.mark.skipif(not ANTHROPIC_API_KEY, reason="ANTHROPIC_API_KEY not set")
+pytestmark = pytest.mark.skipif(
+    not ANTHROPIC_API_KEY, reason="ANTHROPIC_API_KEY not set"
+)
 
 
 @pytest.fixture
@@ -54,6 +56,7 @@ async def test_streaming_produces_progressive_sentences(client):
 
                     # Check for sentence boundary (simple check for ". " or "? " or "! ")
                     import re
+
                     m = re.search(r"[.?!]\s+", text_buffer)
                     if m and not sentence_times:
                         sentence_times.append(time.monotonic() - start)
@@ -67,9 +70,9 @@ async def test_streaming_produces_progressive_sentences(client):
 
     # First sentence should arrive within 5 seconds
     if sentence_times:
-        assert sentence_times[0] < 5.0, (
-            f"First sentence took {sentence_times[0]:.1f}s (> 5s budget)"
-        )
+        assert (
+            sentence_times[0] < 5.0
+        ), f"First sentence took {sentence_times[0]:.1f}s (> 5s budget)"
 
     # Verify all sentences concatenated reconstruct the full response
     rejoined = " ".join(sentences)
@@ -106,6 +109,6 @@ async def test_streaming_tokens_arrive_incrementally(client):
 
     # Check that tokens arrive over a span of time, not all at once
     time_span = token_times[-1] - token_times[0]
-    assert time_span > 0.1, (
-        f"Token stream should span > 0.1s, but all arrived within {time_span:.3f}s"
-    )
+    assert (
+        time_span > 0.1
+    ), f"Token stream should span > 0.1s, but all arrived within {time_span:.3f}s"

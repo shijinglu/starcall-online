@@ -94,7 +94,9 @@ class AgentRegistry:
         return self._registry
 
 
-def build_agent_roster_block(registry: dict[str, AgentRegistryEntry] | None = None) -> str:
+def build_agent_roster_block(
+    registry: dict[str, AgentRegistryEntry] | None = None,
+) -> str:
     """Build the roster text block injected into the Gemini system prompt."""
     reg = registry if registry is not None else AGENT_REGISTRY
     lines = ["Available agents:"]

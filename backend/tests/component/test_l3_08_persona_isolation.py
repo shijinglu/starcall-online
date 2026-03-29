@@ -13,7 +13,9 @@ from app.config import ANTHROPIC_API_KEY
 from app.deep_agent_runner import AGENT_TOOL_DEFINITIONS
 from app.registry import AgentRegistry
 
-pytestmark = pytest.mark.skipif(not ANTHROPIC_API_KEY, reason="ANTHROPIC_API_KEY not set")
+pytestmark = pytest.mark.skipif(
+    not ANTHROPIC_API_KEY, reason="ANTHROPIC_API_KEY not set"
+)
 
 
 @pytest.fixture
@@ -66,9 +68,9 @@ async def test_agent_declines_out_of_scope_task(client, registry, agent_name):
             other_agent_tools.update(t["name"] for t in other_tools)
 
     for tc in tool_calls:
-        assert tc.name not in other_agent_tools, (
-            f"{agent_name} called out-of-scope tool {tc.name}"
-        )
+        assert (
+            tc.name not in other_agent_tools
+        ), f"{agent_name} called out-of-scope tool {tc.name}"
 
     # If there's text, it should indicate inability or redirect
     if full_text:
@@ -102,9 +104,9 @@ async def test_agent_declines_out_of_scope_task(client, registry, agent_name):
             # All tool calls should be in-scope
             in_scope_tools = {t["name"] for t in tools}
             for tc in tool_calls:
-                assert tc.name in in_scope_tools, (
-                    f"{agent_name} hallucinated tool {tc.name}"
-                )
+                assert (
+                    tc.name in in_scope_tools
+                ), f"{agent_name} hallucinated tool {tc.name}"
 
 
 @pytest.mark.asyncio
@@ -141,6 +143,6 @@ async def test_agent_persona_tone(client, registry, agent_name):
 
     if agent_name == "ellen" and full_text:
         # Ellen should address user as "boss"
-        assert "boss" in full_text, (
-            f"Ellen should address user as 'boss'. Got: {full_text[:200]}"
-        )
+        assert (
+            "boss" in full_text
+        ), f"Ellen should address user as 'boss'. Got: {full_text[:200]}"

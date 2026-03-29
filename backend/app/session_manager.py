@@ -7,7 +7,11 @@ import logging
 import time
 from typing import Optional
 
-from app.config import AUTH_TOKEN_TTL_SECONDS, CLEANUP_INTERVAL_SECONDS, SESSION_TTL_SECONDS
+from app.config import (
+    AUTH_TOKEN_TTL_SECONDS,
+    CLEANUP_INTERVAL_SECONDS,
+    SESSION_TTL_SECONDS,
+)
 from app.models import ConversationSession
 
 logger = logging.getLogger(__name__)
@@ -39,7 +43,11 @@ class SessionManager:
         )
         self._sessions[session.session_id] = session
         self._token_index[session.auth_token] = session.session_id
-        logger.info("Created session %s (token expires in %ss)", session.session_id, AUTH_TOKEN_TTL_SECONDS)
+        logger.info(
+            "Created session %s (token expires in %ss)",
+            session.session_id,
+            AUTH_TOKEN_TTL_SECONDS,
+        )
         return session
 
     def validate_token(self, token: str) -> Optional[ConversationSession]:
@@ -86,7 +94,9 @@ class SessionManager:
             try:
                 await session.ws_connection.close()
             except Exception:
-                logger.debug("WS close failed for session %s (already closed?)", session_id)
+                logger.debug(
+                    "WS close failed for session %s (already closed?)", session_id
+                )
 
         # Signal audio queue to stop Gemini send loop
         try:

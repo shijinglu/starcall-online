@@ -424,9 +424,14 @@ fabric.properties
 .env
 secrets/
 
+# Backend log files
+logs/
+
 # Swift Package Manager build artifacts
 .build/
 
 # Xcode user data
 xcuserdata/
 *.xcuserstate
+
+.DS_Store

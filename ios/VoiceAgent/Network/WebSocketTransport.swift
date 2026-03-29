@@ -92,7 +92,7 @@ final class WebSocketTransport: NSObject {
         let message = URLSessionWebSocketTask.Message.data(frame)
         webSocketTask?.send(message) { error in
             if let error {
-                print("[WebSocketTransport] Send binary error: \(error)")
+                Log.error("Send binary error: \(error)", tag: "WebSocketTransport")
             }
         }
     }
@@ -103,7 +103,7 @@ final class WebSocketTransport: NSObject {
               let text = String(data: data, encoding: .utf8) else { return }
         webSocketTask?.send(.string(text)) { error in
             if let error {
-                print("[WebSocketTransport] Send text error: \(error)")
+                Log.error("Send text error: \(error)", tag: "WebSocketTransport")
             }
         }
     }
@@ -116,7 +116,7 @@ final class WebSocketTransport: NSObject {
               let text = String(data: data, encoding: .utf8) else { return }
         webSocketTask?.send(.string(text)) { error in
             if let error {
-                print("[WebSocketTransport] Send text error: \(error)")
+                Log.error("Send text error: \(error)", tag: "WebSocketTransport")
             }
         }
     }

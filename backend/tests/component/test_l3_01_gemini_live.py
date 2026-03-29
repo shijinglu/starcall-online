@@ -39,9 +39,18 @@ async def test_gemini_live_text_round_trip():
 
     responses_received = []
 
-    async with client.aio.live.connect(
-        model=GEMINI_MODEL, config=config
-    ) as session:
+    def _has_content(response):
+        """Check if a response contains audio or text content (including thoughts)."""
+        if response.data or response.text:
+            return True
+        sc = response.server_content
+        if sc and sc.model_turn and sc.model_turn.parts:
+            for part in sc.model_turn.parts:
+                if part.text or getattr(part, "inline_data", None) or getattr(part, "thought", False):
+                    return True
+        return False
+
+    async with client.aio.live.connect(model=GEMINI_MODEL, config=config) as session:
         await session.send_client_content(
             turns=types.Content(
                 role="user",
@@ -56,21 +65,29 @@ async def test_gemini_live_text_round_trip():
                     responses_received.append(response)
                     if response.data or response.text:
                         break
-                    if response.server_content and response.server_content.turn_complete:
+                    if _has_content(response):
+                        break
+                    if (
+                        response.server_content
+                        and response.server_content.turn_complete
+                    ):
                         break
         except TimeoutError:
             pass
 
-    assert len(responses_received) > 0, "Should receive at least one response from Gemini"
+    assert (
+        len(responses_received) > 0
+    ), "Should receive at least one response from Gemini"
 
-    has_audio = any(r.data for r in responses_received)
-    has_text = any(r.text for r in responses_received)
-    assert has_audio or has_text, "Should receive audio or text response"
+    has_content = any(_has_content(r) for r in responses_received)
+    assert has_content, "Should receive audio, text, or thought response from Gemini"
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(not TEST_AUDIO_FILE or not os.path.exists(TEST_AUDIO_FILE),
-                    reason="TEST_AUDIO_PCM_FILE not set or file not found")
+@pytest.mark.skipif(
+    not TEST_AUDIO_FILE or not os.path.exists(TEST_AUDIO_FILE),
+    reason="TEST_AUDIO_PCM_FILE not set or file not found",
+)
 async def test_gemini_live_audio_round_trip():
     """Send PCM audio to Gemini Live and verify transcript + audio response."""
     from google import genai
@@ -91,9 +108,7 @@ async def test_gemini_live_audio_round_trip():
     audio_responses = []
     text_responses = []
 
-    async with client.aio.live.connect(
-        model=GEMINI_MODEL, config=config
-    ) as session:
+    async with client.aio.live.connect(model=GEMINI_MODEL, config=config) as session:
         # Send audio in chunks (100ms at 16kHz = 3200 bytes)
         chunk_size = 3200
         for i in range(0, len(pcm_data), chunk_size):
@@ -116,11 +131,14 @@ async def test_gemini_live_audio_round_trip():
                         audio_responses.append(response.data)
                     if response.text:
                         text_responses.append(response.text)
-                    if response.server_content and response.server_content.turn_complete:
+                    if (
+                        response.server_content
+                        and response.server_content.turn_complete
+                    ):
                         break
         except TimeoutError:
             pass
 
-    assert len(audio_responses) > 0 or len(text_responses) > 0, (
-        "Should receive audio or text response from Gemini"
-    )
+    assert (
+        len(audio_responses) > 0 or len(text_responses) > 0
+    ), "Should receive audio or text response from Gemini"

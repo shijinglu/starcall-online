@@ -1,5 +1,5 @@
 import XCTest
-@testable import VoiceAgent
+@testable import VoiceAgentLib
 
 /// Tests for RFC 1982 modular arithmetic gen_id staleness check.
 ///
@@ -133,6 +133,9 @@ final class GenIdTests: XCTestCase {
         let engine = AudioPlaybackEngine()
         engine.setCurrentGen(3)
         engine.meetingQueueActive = true  // Use meeting mode to buffer instead of playing
+        // Set a current speaker so maybeStartNextMeetingSpeaker() won't try to drain
+        // to real audio hardware (which is unavailable on macOS).
+        engine.setCurrentMeetingSpeaker(0xFF)
 
         let header = AudioFrameHeader(msgType: MsgType.agentAudio.rawValue,
                                       speakerId: SpeakerId.ellen.rawValue,
@@ -148,6 +151,7 @@ final class GenIdTests: XCTestCase {
         let engine = AudioPlaybackEngine()
         engine.setCurrentGen(3)
         engine.meetingQueueActive = true
+        engine.setCurrentMeetingSpeaker(0xFF)
 
         let header = AudioFrameHeader(msgType: MsgType.agentAudio.rawValue,
                                       speakerId: SpeakerId.ellen.rawValue,

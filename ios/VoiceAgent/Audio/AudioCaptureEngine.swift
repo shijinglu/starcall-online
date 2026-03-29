@@ -46,9 +46,11 @@ final class AudioCaptureEngine {
     /// Configure AVAudioSession for voice-first operation.
     /// Uses .voiceChat mode which enables hardware AEC (Acoustic Echo Canceller) and AGC.
     func configureAudioSession() throws {
+        #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth])
         try session.setActive(true)
+        #endif
     }
 
     // MARK: - Capture Control
@@ -59,6 +61,7 @@ final class AudioCaptureEngine {
     func startCapture() {
         let inputNode = audioEngine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
+        Log.info("Input format: \(inputFormat)", tag: "AudioCaptureEngine")
 
         guard let targetFormat = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
@@ -66,10 +69,12 @@ final class AudioCaptureEngine {
             channels: 1,
             interleaved: true
         ) else {
+            Log.error("Failed to create target format", tag: "AudioCaptureEngine")
             return
         }
 
         guard let audioConverter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
+            Log.error("Failed to create converter from \(inputFormat) to \(targetFormat)", tag: "AudioCaptureEngine")
             return
         }
         self.converter = audioConverter
@@ -81,8 +86,9 @@ final class AudioCaptureEngine {
 
         do {
             try audioEngine.start()
+            Log.info("Audio engine started successfully", tag: "AudioCaptureEngine")
         } catch {
-            print("[AudioCaptureEngine] Failed to start audio engine: \(error)")
+            Log.error("Failed to start audio engine: \(error)", tag: "AudioCaptureEngine")
         }
     }
 

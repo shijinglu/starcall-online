@@ -38,16 +38,14 @@ async def test_agents_endpoint_lists_all_agents(http_client):
     agents = body["agents"]
 
     agent_names = {a["name"] for a in agents}
-    assert agent_names == EXPECTED_AGENTS, (
-        f"Expected {EXPECTED_AGENTS}, got {agent_names}"
-    )
+    assert (
+        agent_names == EXPECTED_AGENTS
+    ), f"Expected {EXPECTED_AGENTS}, got {agent_names}"
 
     for agent in agents:
         assert "voice_id" in agent, f"Agent {agent['name']} missing voice_id"
         assert "tool_set" in agent, f"Agent {agent['name']} missing tool_set"
-        assert len(agent["tool_set"]) > 0, (
-            f"Agent {agent['name']} has empty tool_set"
-        )
+        assert len(agent["tool_set"]) > 0, f"Agent {agent['name']} has empty tool_set"
         assert "speaker_id" in agent, f"Agent {agent['name']} missing speaker_id"
         assert "description" in agent, f"Agent {agent['name']} missing description"
 

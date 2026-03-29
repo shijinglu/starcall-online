@@ -14,7 +14,9 @@ import pytest
 
 from app.config import ANTHROPIC_API_KEY
 
-pytestmark = pytest.mark.skipif(not ANTHROPIC_API_KEY, reason="ANTHROPIC_API_KEY not set")
+pytestmark = pytest.mark.skipif(
+    not ANTHROPIC_API_KEY, reason="ANTHROPIC_API_KEY not set"
+)
 
 
 @pytest.fixture
@@ -46,6 +48,7 @@ async def test_timeout_raises_at_approximately_30s(client):
             messages=[{"role": "user", "content": prompt}],
             max_tokens=8192,
         ) as stream:
+
             async def collect_tokens():
                 async for event in stream:
                     if hasattr(event, "type") and event.type == "content_block_delta":
@@ -57,12 +60,12 @@ async def test_timeout_raises_at_approximately_30s(client):
     elapsed = time.monotonic() - start
 
     # Should have timed out near the timeout value
-    assert elapsed >= timeout_seconds - 0.5, (
-        f"Timeout fired too early: {elapsed:.1f}s vs expected ~{timeout_seconds}s"
-    )
-    assert elapsed < timeout_seconds + 5.0, (
-        f"Timeout fired too late: {elapsed:.1f}s vs expected ~{timeout_seconds}s"
-    )
+    assert (
+        elapsed >= timeout_seconds - 0.5
+    ), f"Timeout fired too early: {elapsed:.1f}s vs expected ~{timeout_seconds}s"
+    assert (
+        elapsed < timeout_seconds + 5.0
+    ), f"Timeout fired too late: {elapsed:.1f}s vs expected ~{timeout_seconds}s"
 
     # Partial text received before timeout should be non-empty
     partial_text = "".join(partial_text_parts)
@@ -82,6 +85,7 @@ async def test_no_dangling_connections_after_cancel(client):
             messages=[{"role": "user", "content": prompt}],
             max_tokens=4096,
         ) as stream:
+
             async def collect():
                 async for event in stream:
                     if hasattr(event, "type") and event.type == "content_block_delta":

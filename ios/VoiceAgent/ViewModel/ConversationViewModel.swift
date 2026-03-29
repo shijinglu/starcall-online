@@ -49,6 +49,7 @@ final class ConversationViewModel: ObservableObject {
             } catch {
                 sessionState = .idle
                 errorMessage = error.localizedDescription
+                Log.error("tapStart failed: \(error)", tag: "ConversationViewModel")
             }
         }
     }

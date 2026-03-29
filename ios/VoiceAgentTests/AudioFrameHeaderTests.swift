@@ -1,5 +1,5 @@
 import XCTest
-@testable import VoiceAgent
+@testable import VoiceAgentLib
 
 final class AudioFrameHeaderTests: XCTestCase {
 

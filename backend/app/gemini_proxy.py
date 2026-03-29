@@ -100,7 +100,9 @@ class GeminiLiveProxy:
         # Pluggable output functions (set by ws handler)
         self.send_audio_response = send_audio_response_fn
         self.send_json = send_json_fn
-        self._tasks: dict[str, list[asyncio.Task]] = {}  # session_id -> [send_task, recv_task]
+        self._tasks: dict[
+            str, list[asyncio.Task]
+        ] = {}  # session_id -> [send_task, recv_task]
 
     # ------------------------------------------------------------------
     # Session lifecycle
@@ -120,9 +122,7 @@ class GeminiLiveProxy:
         system_prompt = build_system_prompt(self._registry)
 
         config = types.LiveConnectConfig(
-            system_instruction=types.Content(
-                parts=[types.Part(text=system_prompt)]
-            ),
+            system_instruction=types.Content(parts=[types.Part(text=system_prompt)]),
             tools=[
                 types.Tool(
                     function_declarations=[
@@ -134,8 +134,10 @@ class GeminiLiveProxy:
             response_modalities=["AUDIO"],
         )
 
-        session = await client.aio.live.connect(model=GEMINI_MODEL, config=config)
+        ctx = client.aio.live.connect(model=GEMINI_MODEL, config=config)
+        session = await ctx.__aenter__()
         conv_session.gemini_session = session
+        conv_session.gemini_ctx = ctx
 
         send_task = asyncio.create_task(self._audio_send_loop(conv_session))
         recv_task = asyncio.create_task(self._response_receive_loop(conv_session))
@@ -143,7 +145,9 @@ class GeminiLiveProxy:
 
         logger.info("Gemini Live session started for %s", conv_session.session_id)
 
-    async def send_audio_chunk(self, session: "ConversationSession", pcm: bytes) -> None:
+    async def send_audio_chunk(
+        self, session: "ConversationSession", pcm: bytes
+    ) -> None:
         """Enqueue PCM into the session's audio queue for the send loop."""
         await session.audio_queue.put(pcm)
 
@@ -163,7 +167,7 @@ class GeminiLiveProxy:
             name=tool_call_id,
             response=result,
         )
-        await session.gemini_session.send(input=fn_response)
+        await session.gemini_session.send_tool_response(function_responses=fn_response)
 
     async def close_session(self, session: "ConversationSession") -> None:
         """Cancel send/receive tasks and close the Gemini connection."""
@@ -180,10 +184,15 @@ class GeminiLiveProxy:
 
         if session.gemini_session is not None:
             try:
-                await session.gemini_session.close()
+                ctx = getattr(session, "gemini_ctx", None)
+                if ctx is not None:
+                    await ctx.__aexit__(None, None, None)
+                else:
+                    await session.gemini_session.close()
             except Exception:
                 pass
             session.gemini_session = None
+            session.gemini_ctx = None
 
     # ------------------------------------------------------------------
     # Audio send loop
@@ -191,22 +200,29 @@ class GeminiLiveProxy:
 
     async def _audio_send_loop(self, session: "ConversationSession") -> None:
         """Read PCM from audio_queue and forward to Gemini Live."""
+        from google.genai import types
+
+        chunks_sent = 0
         try:
             while True:
                 pcm = await session.audio_queue.get()
                 if pcm is None:  # sentinel -> stop
+                    logger.info("[session=%s] Audio send loop: got sentinel, stopping", session.session_id)
                     break
                 if session.gemini_session is None:
+                    logger.info("[session=%s] Audio send loop: gemini_session is None, stopping", session.session_id)
                     break
-                await session.gemini_session.send(
-                    input={
-                        "realtime_input": {
-                            "media_chunks": [
-                                {"data": pcm, "mime_type": "audio/pcm;rate=16000"}
-                            ]
-                        }
-                    }
+                await session.gemini_session.send_realtime_input(
+                    audio=types.Blob(data=pcm, mime_type="audio/pcm;rate=16000")
                 )
+                chunks_sent += 1
+                if chunks_sent == 1 or chunks_sent % 100 == 0:
+                    logger.info(
+                        "[session=%s] Audio chunks sent: %d (latest %d bytes)",
+                        session.session_id,
+                        chunks_sent,
+                        len(pcm),
+                    )
         except asyncio.CancelledError:
             pass
         except Exception as exc:
@@ -222,42 +238,71 @@ class GeminiLiveProxy:
     # ------------------------------------------------------------------
 
     async def _response_receive_loop(self, session: "ConversationSession") -> None:
-        """Consume events from the Gemini Live session and route them."""
+        """Consume events from the Gemini Live session and route them.
+
+        Uses the low-level _receive() to read individual messages instead of
+        the high-level receive() which breaks on turn_complete and requires
+        generator recreation -- problematic for multi-turn voice sessions.
+        """
         try:
-            async for response in session.gemini_session.receive():
+            while True:
+                if session.gemini_session is None:
+                    break
+                response = await session.gemini_session._receive()
+                if response is None:
+                    logger.info(
+                        "[session=%s] Gemini session returned None -- stream ended",
+                        session.session_id,
+                    )
+                    break
                 try:
                     # 1. Audio output -> binary frame to iOS client
                     if response.data:
                         frame_seq = session.next_frame_seq()
                         if self.send_audio_response:
-                            await self.send_audio_response(session, response.data, frame_seq)
+                            await self.send_audio_response(
+                                session, response.data, frame_seq
+                            )
 
                     # 2. Transcript -> JSON text frame
                     if response.text:
                         if self.send_json:
-                            await self.send_json(session, {
-                                "type": "transcript",
-                                "speaker": "moderator",
-                                "text": response.text,
-                                "is_final": True,
-                            })
+                            await self.send_json(
+                                session,
+                                {
+                                    "type": "transcript",
+                                    "speaker": "moderator",
+                                    "text": response.text,
+                                    "is_final": True,
+                                },
+                            )
 
                     # 3. Tool call -> route to Agent Task Manager
                     if response.tool_call:
                         for fn_call in response.tool_call.function_calls:
                             await self._handle_tool_call(session, fn_call)
 
-                    # 4. Gemini-side interruption event (idempotent forward)
-                    if (
-                        response.server_content
-                        and getattr(response.server_content, "interrupted", False)
+                    # 4. Gemini-side interruption event
+                    if response.server_content and getattr(
+                        response.server_content, "interrupted", False
                     ):
-                        # Do NOT increment gen_id again -- just forward current value
                         if self.send_json:
-                            await self.send_json(session, {
-                                "type": "interruption",
-                                "gen_id": session.gen_id,
-                            })
+                            await self.send_json(
+                                session,
+                                {
+                                    "type": "interruption",
+                                    "gen_id": session.gen_id,
+                                },
+                            )
+
+                    # 5. turn_complete is informational -- just log and continue
+                    if response.server_content and getattr(
+                        response.server_content, "turn_complete", False
+                    ):
+                        logger.info(
+                            "[session=%s] Turn complete, continuing to listen",
+                            session.session_id,
+                        )
 
                 except Exception as exc:
                     logger.error(
@@ -267,11 +312,14 @@ class GeminiLiveProxy:
                         exc_info=True,
                     )
                     if self.send_json:
-                        await self.send_json(session, {
-                            "type": "error",
-                            "code": "INTERNAL",
-                            "message": f"Internal error processing response: {exc}",
-                        })
+                        await self.send_json(
+                            session,
+                            {
+                                "type": "error",
+                                "code": "INTERNAL",
+                                "message": f"Internal error processing response: {exc}",
+                            },
+                        )
         except asyncio.CancelledError:
             pass
         except Exception as exc:
@@ -283,11 +331,14 @@ class GeminiLiveProxy:
                 exc_info=True,
             )
             if self.send_json:
-                await self.send_json(session, {
-                    "type": "error",
-                    "code": "INTERNAL",
-                    "message": "Moderator connection lost. Please start a new session.",
-                })
+                await self.send_json(
+                    session,
+                    {
+                        "type": "error",
+                        "code": "INTERNAL",
+                        "message": "Moderator connection lost. Please start a new session.",
+                    },
+                )
             await self._sm.terminate_session(session.session_id)
 
     # ------------------------------------------------------------------
@@ -302,57 +353,84 @@ class GeminiLiveProxy:
             await self._handle_resume_agent(session, fn_call)
         else:
             logger.warning("Unknown Gemini tool call: %s", name)
-            await self.send_tool_response(session, fn_call.id, {
-                "error": "unknown_tool",
-                "message": f"No handler for tool '{name}'",
-            })
+            await self.send_tool_response(
+                session,
+                fn_call.id,
+                {
+                    "error": "unknown_tool",
+                    "message": f"No handler for tool '{name}'",
+                },
+            )
 
-    async def _handle_dispatch_agent(self, session: "ConversationSession", fn_call) -> None:
+    async def _handle_dispatch_agent(
+        self, session: "ConversationSession", fn_call
+    ) -> None:
         """Handle dispatch_agent tool call from Gemini."""
         agent_name = fn_call.args.get("name", "")
         task = fn_call.args.get("task", "")
 
         if agent_name not in self._registry:
-            await self.send_tool_response(session, fn_call.id, {
-                "error": "unknown_agent",
-                "message": f"No agent named '{agent_name}'",
-            })
+            await self.send_tool_response(
+                session,
+                fn_call.id,
+                {
+                    "error": "unknown_agent",
+                    "message": f"No agent named '{agent_name}'",
+                },
+            )
             return
 
         agent_session_id = await self._atm.dispatch(session, agent_name, task)
 
-        await self.send_tool_response(session, fn_call.id, {
-            "status": "dispatched",
-            "agent_session_id": agent_session_id,
-        })
+        await self.send_tool_response(
+            session,
+            fn_call.id,
+            {
+                "status": "dispatched",
+                "agent_session_id": agent_session_id,
+            },
+        )
 
         if self.send_json:
-            await self.send_json(session, {
-                "type": "agent_status",
-                "agent_name": agent_name,
-                "agent_session_id": agent_session_id,
-                "status": "dispatched",
-                "gen_id": session.gen_id,
-            })
+            await self.send_json(
+                session,
+                {
+                    "type": "agent_status",
+                    "agent_name": agent_name,
+                    "agent_session_id": agent_session_id,
+                    "status": "dispatched",
+                    "gen_id": session.gen_id,
+                },
+            )
 
-    async def _handle_resume_agent(self, session: "ConversationSession", fn_call) -> None:
+    async def _handle_resume_agent(
+        self, session: "ConversationSession", fn_call
+    ) -> None:
         """Handle resume_agent tool call from Gemini."""
         agent_session_id = fn_call.args.get("agent_session_id", "")
         follow_up = fn_call.args.get("follow_up", "")
 
         agent_session = session.agent_sessions.get(agent_session_id)
         if agent_session is None:
-            await self.send_tool_response(session, fn_call.id, {
-                "error": "session_not_found",
-                "message": f"No agent session {agent_session_id}",
-            })
+            await self.send_tool_response(
+                session,
+                fn_call.id,
+                {
+                    "error": "session_not_found",
+                    "message": f"No agent session {agent_session_id}",
+                },
+            )
             return
 
         if agent_session.status == "active":
-            await self.send_tool_response(session, fn_call.id, {
-                "error": "agent_busy",
-                "message": f"{agent_session.agent_name.capitalize()} is still working on your previous request",
-            })
+            await self.send_tool_response(
+                session,
+                fn_call.id,
+                {
+                    "error": "agent_busy",
+                    "message": f"{agent_session.agent_name.capitalize()} is still working on your previous request",
+                },
+            )
             return
 
         await self._atm.resume(session, agent_session, follow_up)

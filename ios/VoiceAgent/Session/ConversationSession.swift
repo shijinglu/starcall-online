@@ -80,29 +80,47 @@ final class ConversationSession: NSObject {
     func start() async throws {
         guard state == .idle else { return }
         state = .connecting
+        Log.info("Starting session, baseURL=\(baseURL)", tag: "ConversationSession")
 
         do {
             // 1. Create session via REST.
             let (newSessionId, authToken) = try await httpClient.createSession(serverURL: baseURL)
             self.sessionId = newSessionId
+            Log.info("Session created: \(newSessionId)", tag: "ConversationSession")
 
             // 2. Open WebSocket.
             let wsURL = buildWebSocketURL()
+            Log.info("Connecting WebSocket: \(wsURL)", tag: "ConversationSession")
             transport.connect(token: authToken, serverURL: wsURL)
 
             // 3. Start audio capture.
-            try audioCaptureEngine.configureAudioSession()
+            do {
+                try audioCaptureEngine.configureAudioSession()
+                Log.info("Audio session configured", tag: "ConversationSession")
+            } catch {
+                Log.error("configureAudioSession failed: \(error)", tag: "ConversationSession")
+                throw error
+            }
             audioCaptureEngine.startCapture()
+            Log.info("Audio capture started", tag: "ConversationSession")
 
             // 4. Start playback engine.
-            try playbackEngine.start()
+            do {
+                try playbackEngine.start()
+                Log.info("Playback engine started", tag: "ConversationSession")
+            } catch {
+                Log.error("Playback engine start failed: \(error)", tag: "ConversationSession")
+                throw error
+            }
 
             state = .active
             currentGen = 0
             frameSeq = 0
+            Log.info("Session active", tag: "ConversationSession")
         } catch {
             state = .idle
             errorMessage = error.localizedDescription
+            Log.error("Session start failed: \(error)", tag: "ConversationSession")
             throw error
         }
     }
@@ -303,7 +321,7 @@ extension ConversationSession: WebSocketTransportDelegate {
     func transportDidDisconnect(error: Error?) {
         // Transport handles reconnection internally with exponential backoff.
         // We just log the event here.
-        print("[ConversationSession] Transport disconnected: \(error?.localizedDescription ?? "unknown")")
+        Log.warning("Transport disconnected: \(error?.localizedDescription ?? "unknown")", tag: "ConversationSession")
     }
 }
 
@@ -330,6 +348,9 @@ extension ConversationSession: AudioCaptureEngineDelegate {
             return Array(UnsafeBufferPointer(start: bound, count: rawBuffer.count / MemoryLayout<Int16>.size))
         }
         let rms = audioCaptureEngine.computeRMS(samples)
+        if frameSeq == 1 || frameSeq % 100 == 0 {
+            Log.info("Audio chunk #\(frameSeq): \(data.count) bytes, rms=\(rms)", tag: "ConversationSession")
+        }
         delegate?.sessionDidUpdateMicAmplitude(rms)
     }
 }

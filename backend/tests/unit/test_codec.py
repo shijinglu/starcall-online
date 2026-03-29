@@ -31,8 +31,13 @@ class TestEncodeDecodeRoundTrip:
             assert decode_frame(frame)[0] == mt
 
     def test_all_speaker_ids(self):
-        for sid in (SpeakerId.MODERATOR, SpeakerId.ELLEN, SpeakerId.SHIJING,
-                    SpeakerId.EVA, SpeakerId.MING):
+        for sid in (
+            SpeakerId.MODERATOR,
+            SpeakerId.ELLEN,
+            SpeakerId.SHIJING,
+            SpeakerId.EVA,
+            SpeakerId.MING,
+        ):
             frame = encode_frame(MsgType.AUDIO_CHUNK, sid, 0, 0, b"x")
             assert decode_frame(frame)[1] == sid
 

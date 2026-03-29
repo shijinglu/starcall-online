@@ -46,9 +46,19 @@ final class AudioPlaybackEngine {
         )!
     }
 
+    /// Whether the engine has been started.
+    private(set) var isStarted = false
+
     /// Start the audio engine for playback.
     func start() throws {
+        // Attach a dummy node so the engine graph is valid before starting.
+        let dummy = AVAudioPlayerNode()
+        audioEngine.attach(dummy)
+        audioEngine.connect(dummy, to: audioEngine.mainMixerNode, format: playbackFormat)
+        Log.info("Playback engine: starting AVAudioEngine", tag: "AudioPlaybackEngine")
         try audioEngine.start()
+        isStarted = true
+        Log.info("Playback engine: AVAudioEngine started", tag: "AudioPlaybackEngine")
     }
 
     /// Stop the audio engine.

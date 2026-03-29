@@ -1,0 +1,23 @@
+name: VoiceAgent
+options:
+  bundleIdPrefix: com.shijinglu
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "16.0"
+
+targets:
+  VoiceAgent:
+    type: application
+    platform: iOS
+    sources:
+      - path: VoiceAgent
+    info:
+      path: VoiceAgent/App/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shijinglu.VoiceAgent
+        INFOPLIST_FILE: VoiceAgent/App/Info.plist
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: false
+    dependencies: []

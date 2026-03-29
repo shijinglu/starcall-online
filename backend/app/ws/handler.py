@@ -49,6 +49,7 @@ def init_ws_handler(
 # Outbound helpers
 # ------------------------------------------------------------------
 
+
 async def send_audio_response(
     session: "ConversationSession", pcm: bytes, frame_seq: int
 ) -> None:
@@ -79,7 +80,9 @@ async def send_agent_audio(
             logger.debug("Failed to send agent audio (WS closed?)")
 
 
-async def send_json_msg(session: "ConversationSession", payload: dict[str, Any]) -> None:
+async def send_json_msg(
+    session: "ConversationSession", payload: dict[str, Any]
+) -> None:
     """Send a JSON text frame to the iOS client."""
     if session.ws_connection is not None:
         try:
@@ -88,15 +91,14 @@ async def send_json_msg(session: "ConversationSession", payload: dict[str, Any])
             logger.debug("Failed to send JSON (WS closed?)")
 
 
-async def send_error(
-    session: "ConversationSession", code: str, message: str
-) -> None:
+async def send_error(session: "ConversationSession", code: str, message: str) -> None:
     await send_json_msg(session, {"type": "error", "code": code, "message": message})
 
 
 # ------------------------------------------------------------------
 # WebSocket endpoint
 # ------------------------------------------------------------------
+
 
 @router.websocket("/api/v1/conversation/live")
 async def websocket_endpoint(ws: WebSocket, token: str = Query(...)):
@@ -138,7 +140,9 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query(...)):
     except WebSocketDisconnect:
         pass
     except Exception as exc:
-        logger.error("WS error for session %s: %s", session.session_id, exc, exc_info=True)
+        logger.error(
+            "WS error for session %s: %s", session.session_id, exc, exc_info=True
+        )
     finally:
         logger.info("WS disconnected for session %s", session.session_id)
         await _gemini_proxy.close_session(session)
@@ -148,6 +152,7 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query(...)):
 # ------------------------------------------------------------------
 # Frame routing
 # ------------------------------------------------------------------
+
 
 async def _handle_binary_frame(data: bytes, session: "ConversationSession") -> None:
     """Route an incoming binary frame."""
@@ -212,19 +217,25 @@ async def _handle_agent_followup(msg: dict, session: "ConversationSession") -> N
 
     agent_session = session.agent_sessions.get(agent_session_id)  # type: ignore[arg-type]
     if agent_session is None:
-        await send_json_msg(session, {
-            "type": "error",
-            "code": "SESSION_NOT_FOUND",
-            "message": "No such agent session",
-        })
+        await send_json_msg(
+            session,
+            {
+                "type": "error",
+                "code": "SESSION_NOT_FOUND",
+                "message": "No such agent session",
+            },
+        )
         return
 
     if agent_session.status == "active":
-        await send_json_msg(session, {
-            "type": "error",
-            "code": "AGENT_BUSY",
-            "message": "Agent is still working",
-        })
+        await send_json_msg(
+            session,
+            {
+                "type": "error",
+                "code": "AGENT_BUSY",
+                "message": "Agent is still working",
+            },
+        )
         return
 
     await _agent_task_manager.resume(session, agent_session, text)

@@ -45,6 +45,7 @@ class ConversationSession:
 
     ws_connection: Any = None  # WebSocket connection object
     gemini_session: Any = None  # Gemini Live session handle
+    gemini_ctx: Any = None  # Async context manager for Gemini Live connection
 
     agent_sessions: dict[str, AgentSession] = field(default_factory=dict)
     gen_id: int = 0

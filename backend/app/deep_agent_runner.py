@@ -45,13 +45,15 @@ def split_into_sentences(text: str) -> Generator[str, None, None]:
             break
         candidate = buf[: m.start() + 1].strip()
         # Check if the word before the punctuation is an abbreviation
-        last_word = candidate.rsplit(None, 1)[-1].rstrip(".?!").lower() if candidate else ""
+        last_word = (
+            candidate.rsplit(None, 1)[-1].rstrip(".?!").lower() if candidate else ""
+        )
         if last_word in ABBREVIATIONS:
             # Not a real sentence end; skip past this match and keep scanning
             search_start = m.end()
             continue
         yield candidate
-        buf = buf[m.end():]
+        buf = buf[m.end() :]
         search_start = 0
     # Yield any remaining text as a final (possibly incomplete) sentence
     remainder = buf.strip()
@@ -72,7 +74,10 @@ AGENT_TOOL_DEFINITIONS: dict[str, list[dict[str, Any]]] = {
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "date": {"type": "string", "description": "Date to query, e.g. 'today' or '2026-03-28'"}
+                    "date": {
+                        "type": "string",
+                        "description": "Date to query, e.g. 'today' or '2026-03-28'",
+                    }
                 },
                 "required": [],
             },
@@ -117,7 +122,10 @@ AGENT_TOOL_DEFINITIONS: dict[str, list[dict[str, Any]]] = {
                 "type": "object",
                 "properties": {
                     "user_id": {"type": "string"},
-                    "days": {"type": "integer", "description": "Lookback window in days"},
+                    "days": {
+                        "type": "integer",
+                        "description": "Lookback window in days",
+                    },
                 },
                 "required": [],
             },
@@ -259,12 +267,16 @@ class DeepAgentRunner:
                                     # Check for sentence boundaries
                                     _search_start = 0
                                     while True:
-                                        m = _SENTENCE_END_RE.search(text_buffer, _search_start)
+                                        m = _SENTENCE_END_RE.search(
+                                            text_buffer, _search_start
+                                        )
                                         if m is None:
                                             break
                                         candidate = text_buffer[: m.start() + 1].strip()
                                         last_word = (
-                                            candidate.rsplit(None, 1)[-1].rstrip(".?!").lower()
+                                            candidate.rsplit(None, 1)[-1]
+                                            .rstrip(".?!")
+                                            .lower()
                                             if candidate
                                             else ""
                                         )
@@ -274,7 +286,7 @@ class DeepAgentRunner:
                                             continue
                                         # Valid sentence boundary
                                         sentence = candidate
-                                        text_buffer = text_buffer[m.end():]
+                                        text_buffer = text_buffer[m.end() :]
                                         _search_start = 0
                                         full_text_parts.append(sentence)
                                         if deliver_fn and sentence:
@@ -316,7 +328,9 @@ class DeepAgentRunner:
             if remainder:
                 full_text_parts.append(remainder)
                 if deliver_fn:
-                    pcm = await self._tts.synthesize(remainder, agent_session.agent_name)
+                    pcm = await self._tts.synthesize(
+                        remainder, agent_session.agent_name
+                    )
                     if pcm:
                         await deliver_fn(conv_session, agent_session, pcm)
 

@@ -4,7 +4,7 @@
 
 This document covers integration test design across three granularity levels. Tests focus on **data and user flow coverage** rather than code coverage. Level 3 (component) tests are preferred; Level 1 (full-stack) tests are reserved for flows that require end-to-end verification through the iOS UI.
 
-**External dependencies assumed available at all levels:** Gemini Live API credentials, Claude SDK credentials, Google Cloud TTS credentials.
+**External dependencies assumed available at all levels:** Gemini Live API credentials, Claude Agent SDK credentials (`ANTHROPIC_API_KEY`), Google Cloud TTS credentials, Claude Code CLI installed (`npm install -g @anthropic-ai/claude-code`).
 
 ---
 
@@ -49,7 +49,7 @@ This document covers integration test design across three granularity levels. Te
 - UI shows a "thinking" spinner for the dispatched agent within 2 s of the voice query.
 - Gemini's acknowledgment phrase (e.g., "Ellen is on it!") is heard before agent audio.
 - Agent audio plays in a distinct voice from the moderator.
-- At least two consecutive `agent_audio` binary frames are received (sentence-level streaming confirmed).
+- `agent_audio` binary frames are received (whole-message TTS confirmed).
 - `agent_status{done}` event appears in logs after playback ends.
 - No moderator audio overlaps with agent audio during playback.
 
@@ -364,75 +364,77 @@ Start a Gemini Live session with the agent roster injected in the system prompt 
 
 ---
 
-### L3-04 — Claude SDK: Streaming Token Output
+### L3-04 — Agent SDK: Full Response via query()
 
-**What it covers:** Claude SDK `stream=True`; token-level streaming; sentence boundary detection.
+**What it covers:** Agent SDK `query()` function; `ResultMessage` with full response; MCP tool integration.
 
 **Operation:**
-Invoke Claude SDK with a deep agent system prompt (Ellen persona) and a sample analytical task. Collect streaming tokens. Apply the sentence-boundary splitter (`.`, `?`, `!`) to the token stream.
+Invoke `query()` with Ellen's system prompt, an MCP server wrapping Ellen's tools, and a sample analytical task. Iterate messages until `ResultMessage` is received.
 
 **Verify:**
-- First complete sentence is yielded in < 5 s from invocation start.
-- Subsequent sentences arrive progressively (not all at once at the end).
-- All sentences concatenated equal the full response.
-- No sentence is split mid-word.
+- `SystemMessage` with `subtype == "init"` is received first, containing a valid `session_id`.
+- `ResultMessage` with `subtype == "success"` is received at completion.
+- `ResultMessage.result` contains a non-empty, coherent response.
+- If the task requires tool calls, `AssistantMessage` blocks with `ToolUseBlock` content are observed before the `ResultMessage`.
+- Total elapsed time is reasonable (< 30 s for a simple task).
 
 ---
 
-### L3-05 — Claude SDK: Conversation History Continuity
+### L3-05 — Agent SDK: Session Resume Continuity
 
-**What it covers:** Multi-turn history appending; context preservation across turns.
+**What it covers:** Multi-turn context preservation via `resume=session_id`.
 
 **Operation:**
-1. Invoke Claude with persona prompt + turn 1 ("What's my risk score?").
-2. Append assistant response to `conversation_history`.
-3. Invoke Claude again with the same history + turn 2 ("Why is it that value?").
+1. Invoke `query()` with Shijing's persona + turn 1 ("What's the user's risk score?"). Capture `session_id` from `SystemMessage`.
+2. Invoke `query()` again with `resume=session_id` + turn 2 ("Why is it that value?").
 
 **Verify:**
 - Turn 2 response references context from turn 1 without re-asking for the same information.
-- Response coherence indicates history was correctly preserved.
+- Response coherence indicates session state was correctly preserved by the SDK.
+- No manual conversation history management is needed.
 
 ---
 
-### L3-06 — Claude SDK: 30-Second Timeout Behavior
+### L3-06 — Agent SDK: 30-Second Timeout and Subprocess Cleanup
 
-**What it covers:** Timeout propagation; task cancellation without side effects.
+**What it covers:** Timeout propagation to Agent SDK subprocess; graceful cleanup; `sdk_session_id` invalidation.
 
 **Operation:**
-Wrap a Claude SDK call with `asyncio.wait_for(timeout=30)`. Use a prompt that produces a very long response. Cancel after timeout.
+Wrap `query()` in `asyncio.wait_for(timeout=30)`. Use a prompt that produces a very long response (or triggers many tool calls). Cancel after timeout. Then attempt a new `query()` with the same `resume=session_id`.
 
 **Verify:**
 - `asyncio.TimeoutError` is raised at approximately 30 s.
-- Partial sentences received before timeout are well-formed (not cut mid-sentence).
-- No dangling SDK connections remain after cancellation.
+- The `query()` async generator is properly closed (`aclose()`) and no orphaned subprocess remains.
+- A subsequent `query()` without `resume` (fresh session) works correctly.
+- A subsequent `query()` with `resume=old_session_id` either works or fails gracefully (no crash).
 
 ---
 
-### L3-07 — Google Cloud TTS: Per-Sentence Synthesis
+### L3-07 — Google Cloud TTS: Whole-Message Synthesis
 
-**What it covers:** TTS API call with `LINEAR16` encoding at 16 kHz; per-sentence latency; audio format correctness.
+**What it covers:** TTS API call with `LINEAR16` encoding at 16 kHz; whole-message synthesis; audio format correctness.
 
 **Operation:**
-Call Google Cloud TTS with 3 sample sentences of varying length, using the voice IDs for all 4 agents (`en-US-Journey-F`, `en-US-Journey-D`, `en-US-Journey-O`, `en-US-Neural2-D`).
+Call Google Cloud TTS with 3 sample texts of varying length (short sentence, medium paragraph, long multi-paragraph response), using the voice IDs for all 4 agents (`en-US-Journey-F`, `en-US-Journey-D`, `en-US-Journey-O`, `en-US-Neural2-D`).
 
 **Verify:**
 - Each API call returns raw PCM bytes with correct format (16 kHz int16 LE).
-- First sentence synthesized in < 1.5 s (latency budget for first-audio target).
-- Audio duration is proportional to sentence length (sanity check).
+- Whole-message synthesis completes within reasonable time (< 5 s for typical agent responses).
+- Audio duration is proportional to text length (sanity check).
 - All 4 voice IDs produce distinct non-empty audio.
 
 ---
 
-### L3-08 — Agent Persona System Prompt Isolation
+### L3-08 — Agent Persona System Prompt and MCP Tool Isolation
 
-**What it covers:** Per-agent system prompt injection; tool set scoping (each agent only has access to its declared tools).
+**What it covers:** Per-agent system prompt injection; MCP tool scoping (each agent only has access to its own MCP server's tools).
 
 **Operation:**
-Invoke Claude SDK with each agent's system prompt (ellen / shijing / eva / ming). Ask each agent to perform a task belonging to a *different* agent's domain (e.g., ask Ellen to run a fraud ID check).
+Invoke `query()` with each agent's system prompt and MCP tool server (ellen / shijing / eva / ming). Ask each agent to perform a task belonging to a *different* agent's domain (e.g., ask Ellen to run a fraud ID check).
 
 **Verify:**
 - Agent declines or expresses inability to perform out-of-scope tasks.
-- Agent does not hallucinate tools it does not have.
+- Agent does not hallucinate tools it does not have (only `mcp__<agent>_tools__*` tools are available).
 - Each agent's response tone/persona matches its declared description.
 
 ---
@@ -451,20 +453,20 @@ Unit test (pure Python, no external services): encode a set of frames with known
 
 ---
 
-### L3-10 — Sentence Boundary Splitter Correctness
+### L3-10 — MCP Tool Wrapper Correctness
 
-**What it covers:** Token stream → sentence splitting logic; edge cases.
+**What it covers:** `@tool` decorator wrappers correctly delegate to underlying tool functions; MCP server creation.
 
 **Operation:**
-Pure unit test: feed a simulated token stream (list of string tokens) containing mixed punctuation, abbreviations (e.g., "Dr. Smith"), ellipses, and multi-sentence text to the splitter.
+Pure unit test: call each `@tool`-decorated function in `tools/mcp_servers.py` directly with sample arguments. Verify the wrapper delegates to the underlying tool function and returns correctly formatted MCP content.
 
 **Test cases:**
-- Normal sentence: `"The risk score is high. You should review this."` → 2 sentences.
-- Abbreviation: `"Dr. Smith reviewed the case."` → 1 sentence (not split at "Dr.").
-- Trailing incomplete sentence (stream ends mid-sentence): yielded as-is at stream end.
-- Empty stream → no output.
+- `user_profile_read({"user_id": "test"})` → returns `{"content": [{"type": "text", "text": "<json>"}]}`.
+- `calendar_read({"date": "today"})` → returns valid MCP content format.
+- Each of the 12 tool wrappers produces well-formed `content` array.
+- `AGENT_MCP_SERVERS` dict contains entries for all 4 agents.
 
-**Verify:** Output sentence list matches expected splits for each case.
+**Verify:** All wrappers return MCP-compliant content blocks; no exceptions raised.
 
 ---
 
@@ -475,16 +477,16 @@ Pure unit test: feed a simulated token stream (list of string tokens) containing
 | Session create / auth / destroy | L1-01 | L2-01, L2-02 | — |
 | Simple query (Gemini handles) | L1-01 | L2-03 | L3-01 |
 | Agent dispatch (complex query) | L1-02 | L2-04 | L3-02, L3-04 |
-| First-sentence streaming latency | L1-02 | L2-04 | L3-04, L3-07 |
-| Agent timeout (30 s) | — | L2-05 | L3-06 |
-| Multi-turn resume (idle) | — | L2-06 | L3-05 |
+| Agent SDK query() + ResultMessage | L1-02 | L2-04 | L3-04 |
+| Agent timeout (30 s) + subprocess cleanup | — | L2-05 | L3-06 |
+| Multi-turn resume (SDK session) | — | L2-06 | L3-05 |
 | Resume busy → error | — | L2-07 | — |
 | Barge-in / interrupt | L1-03 | L2-08 | — |
 | gen_id zombie audio prevention | L1-03 | L2-09 | L3-09 |
 | Meeting mode parallel + sequential | L1-04 | L2-10 | — |
 | Session TTL cleanup | — | L2-11 | — |
-| Agent roster / personas | — | L2-12 | L3-08 |
+| Agent roster / personas + MCP tool isolation | — | L2-12 | L3-08 |
 | Gemini tool call schema | — | — | L3-02, L3-03 |
-| TTS per-sentence / per-voice | L1-02 | L2-04 | L3-07 |
-| Sentence boundary splitting | — | — | L3-10 |
+| TTS whole-message / per-voice | L1-02 | L2-04 | L3-07 |
+| MCP tool wrapper correctness | — | — | L3-10 |
 | WS reconnect / network drop | L1-05 | — | — |

@@ -6,7 +6,7 @@ A voice-first AI assistant system where users speak naturally with a fast AI mod
 
 **Architecture**: Hybrid synchronous/asynchronous
 - **Fast path**: iOS app ↔ FastAPI backend ↔ Gemini Live API (real-time voice loop)
-- **Slow path**: Backend ↔ Claude SDK agents (async, non-blocking, inject results back when ready)
+- **Slow path**: Backend ↔ Claude Agent SDK agents (async, non-blocking, inject results back when ready)
 
 ---
 
@@ -35,11 +35,12 @@ A voice-first AI assistant system where users speak naturally with a fast AI mod
 │                                ┌────────┴────────────────────────┐  │
 │                                │   Deep Agents (per persona)     │  │
 │                                │  Ellen / Shijing / Eva / Ming   │  │
+│                                │  (Claude Agent SDK + MCP tools) │  │
 │                                └────────┬────────────────────────┘  │
-│                                         │ streaming text sentences  │
+│                                         │ full response text        │
 │                                ┌────────▼────────────────────────┐  │
 │                                │   Google Cloud TTS              │  │
-│                                │  (per-sentence, 16kHz LINEAR16) │  │
+│                                │  (whole-message, 16kHz LINEAR16)│  │
 │                                └─────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -116,10 +117,10 @@ The backend maintains a per-session monotonically increasing `gen_id` (generatio
 | **WebSocket Handler** | Accept/manage client WS connections; validate auth token on handshake (reject 401 if missing/expired); dispatch binary audio frames to Gemini; dispatch JSON control events; stamp all outbound audio frames with current `gen_id` | Session Manager, Gemini Live Proxy, Agent Task Manager |
 | **Session Manager** | Track active sessions (`session_id` → WS connection + Gemini session + active jobs + `gen_id` counter + `auth_token`); enforce per-session TTL (auto-cancel all agent tasks and close WS after 2 hours of inactivity or explicit stop); provide lookup for agent result delivery | WebSocket Handler, Agent Task Manager |
 | **Gemini Live Proxy** | Stream client PCM to Gemini Live; receive TTS audio + tool calls; relay audio back to client as binary frames | WebSocket Handler, Agent Task Manager |
-| **Agent Task Manager** | Receive dispatch requests from Gemini tool calls; spawn async Claude SDK tasks (with `stream=True`); enforce a **30-second hard timeout** per task (`asyncio.wait_for`); emit `agent_status{thinking}` heartbeat every 10 s while Claude is running; emit `agent_status{timeout}` + synthesize fallback phrase on timeout; **reject `resume_agent` with `ToolResponse{error: "agent_busy"}` if `AgentSession.status == "active"`**; on `interrupt`, apply cancellation based on `mode`: `cancel_all` (default) calls `asyncio.Task.cancel()` on all running Claude tasks for the session and clears the `meeting_queue`; `skip_speaker` cancels only the active TTS stream for the currently-playing agent and advances the `meeting_queue` to the next entry, preserving pre-computed results from agents that have already finished; maintain `meeting_queue` for Meeting Mode serialized audio delivery; apply session TTL cleanup | Gemini Live Proxy, Deep Agent Runner, TTS Service, Session Manager |
-| **Deep Agent Runner** | Wrap Claude SDK with per-agent system prompt + tool set; call Claude with **`stream=True`**; split streaming token output at sentence boundaries (`.`, `?`, `!`); yield each complete sentence to the TTS pipeline immediately; maintain `conversation_history` list across turns | Agent Task Manager, external APIs/tools |
-| **TTS Service** | Accept individual sentence strings from Deep Agent Runner; call Google Cloud TTS with `LINEAR16` encoding at **16 kHz** per sentence; return raw PCM chunk; pipeline is called per-sentence, not per-full-response | Agent Task Manager |
-| **Agent Registry** | Static in-memory map of agent name → `{system_prompt, voice_id, tool_set}`; loaded at startup; injected into Gemini session system prompt so the moderator knows available agent names and capabilities | Session Manager, Gemini Live Proxy, Deep Agent Runner |
+| **Agent Task Manager** | Receive dispatch requests from Gemini tool calls; spawn async Agent SDK tasks; enforce a **30-second hard timeout** per task (`asyncio.wait_for`); emit `agent_status{thinking}` heartbeat every 10 s while the agent is running; emit `agent_status{timeout}` + synthesize fallback phrase on timeout (clears `sdk_session_id` to prevent resuming a broken session); **reject `resume_agent` with `ToolResponse{error: "agent_busy"}` if `AgentSession.status == "active"`**; on `interrupt`, apply cancellation based on `mode`: `cancel_all` (default) calls `asyncio.Task.cancel()` on all running agent tasks for the session and clears the `meeting_queue`; `skip_speaker` cancels only the active TTS stream for the currently-playing agent and advances the `meeting_queue` to the next entry, preserving pre-computed results from agents that have already finished; maintain `meeting_queue` for Meeting Mode serialized audio delivery; apply session TTL cleanup | Gemini Live Proxy, SDK Agent Runner, TTS Service, Session Manager |
+| **SDK Agent Runner** | Wrap Claude Agent SDK `query()` with per-agent system prompt + MCP tool server; SDK handles the agent loop (tool dispatch, streaming, retries) autonomously; wait for full response via `ResultMessage`; pass complete response text to TTS Service for whole-message synthesis; maintain `sdk_session_id` for multi-turn continuity via `resume=session_id`; append text summary to `conversation_history` for Gemini context | Agent Task Manager, MCP tool servers |
+| **TTS Service** | Accept full response text from SDK Agent Runner; call Google Cloud TTS with `LINEAR16` encoding at **16 kHz**; return raw PCM chunk; pipeline is called once per agent response (whole-message), not per-sentence | Agent Task Manager |
+| **Agent Registry** | Static in-memory map of agent name → `{system_prompt, voice_id, tool_set, subagents}`; loaded at startup; injected into Gemini session system prompt so the moderator knows available agent names and capabilities. Each agent's tools are exposed as an in-process MCP server via the Agent SDK. Subagent definitions (optional) allow agents to delegate sub-tasks. | Session Manager, Gemini Live Proxy, SDK Agent Runner |
 
 **TTS Architecture — Two Distinct Paths:**
 
@@ -128,7 +129,7 @@ The system uses two separate TTS engines serving different roles. These are not 
 | Path | Engine | Used for | Why |
 |------|--------|----------|-----|
 | **Fast path (Moderator)** | Gemini Live (native) | All moderator speech: acknowledgments, simple answers, "Ellen is on it!" | Gemini Live produces TTS audio natively as part of its streaming response — zero extra latency, no additional API call |
-| **Slow path (Deep Agents)** | Google Cloud TTS | All agent speech: Ellen, Shijing, Eva, Ming responses | Gemini Live cannot synthesize audio in a configurable external voice. Agent personas require distinct, assignable voice IDs (e.g., `en-US-Journey-F`). Google Cloud TTS is called per-sentence by the TTS Service module. |
+| **Slow path (Deep Agents)** | Google Cloud TTS | All agent speech: Ellen, Shijing, Eva, Ming responses | Gemini Live cannot synthesize audio in a configurable external voice. Agent personas require distinct, assignable voice IDs (e.g., `en-US-Journey-F`). Google Cloud TTS is called once per full agent response by the TTS Service module. |
 
 These paths produce different message types: moderator speech arrives as `audio_response` binary frames; agent speech arrives as `agent_audio` binary frames. Both use `LINEAR16` PCM at 16 kHz.
 
@@ -153,13 +154,13 @@ Typical flow: user asks a question that requires a deep agent.
 - iOS app obtains `session_id` + `auth_token` from `POST /sessions`, then opens the WebSocket with `?token=<auth_token>`.
 - Audio streams as binary WS frames (100 ms, 16kHz int16 PCM); backend proxies to Gemini Live.
 - When the query requires deep analysis, Gemini emits a `dispatch_agent` tool call.
-- Backend spawns an async Claude SDK task (streaming mode) and immediately returns `ToolResponse{dispatched}` so Gemini can voice-acknowledge.
-- Claude streams token output; Deep Agent Runner splits on sentence boundaries and pipes each sentence to TTS immediately — the first sentence of the agent's reply is synthesized and sent to the client well before Claude finishes the full response.
-- Each PCM chunk is sent as a binary frame stamped with the current `gen_id`.
+- Backend spawns an async Agent SDK task and immediately returns `ToolResponse{dispatched}` so Gemini can voice-acknowledge.
+- The Agent SDK runs the agent autonomously (tool calls, reasoning) and returns a full response via `ResultMessage`. The SDK Agent Runner then sends the complete text to Google Cloud TTS for whole-message synthesis.
+- The resulting PCM chunk is sent as a binary frame stamped with the current `gen_id`.
 - Client plays the agent's audio at 16kHz; user hears a distinct voice per agent.
 
 ```
-iOS App                  FastAPI Backend               Gemini Live       Claude Agent    Google TTS
+iOS App                  FastAPI Backend               Gemini Live       Agent SDK       Google TTS
    │                           │                            │                  │               │
    │──── POST /sessions ───────►                            │                  │               │
    │◄─── {session_id, token} ──│                            │                  │               │
@@ -171,18 +172,17 @@ iOS App                  FastAPI Backend               Gemini Live       Claude 
    │  [user asks complex task] │                            │                  │               │
    │──── [binary] audio_chunk ─►──────── PCM stream ────────►                  │               │
    │                           │◄── ToolCall: dispatch_agent│                  │               │
-   │                           │─── start_agent(task,stream)────────────────────►              │
+   │                           │─── query(task, options) ───────────────────────►              │
    │                           │─── ToolResponse{dispatched}►                  │               │
    │◄─── [JSON] agent_status{dispatched} ───────────────────│                  │               │
    │◄─── [binary] audio_resp ──│◄─── TTS "Ellen is on it!" ─│                  │               │
-   │                           │                            │  [streaming ~10s]│               │
-   │                           │                            │◄─ sentence 1 ────│               │
-   │                           │─── synthesize(s1) ────────────────────────────────────────────►│
-   │                           │◄─── PCM chunk 1 ──────────────────────────────────────────────│
-   │◄─── [binary] agent_audio ─│   (first audio ~1-2s after dispatch)          │               │
-   │                           │                            │◄─ sentence 2 ────│               │
-   │                           │─── synthesize(s2) ─────────────────────────────────────────────►
-   │◄─── [binary] agent_audio ─│   (overlapped with Claude still thinking)     │               │
+   │                           │                            │  [agent loop     │               │
+   │                           │                            │   tool calls +   │               │
+   │                           │                            │   reasoning ~10s]│               │
+   │                           │                            │◄─ ResultMessage ─│               │
+   │                           │─── synthesize(full_text) ─────────────────────────────────────►│
+   │                           │◄─── PCM (whole response) ─────────────────────────────────────│
+   │◄─── [binary] agent_audio ─│   (audio after full response completes)       │               │
    │  [plays Ellen's voice]    │                            │                  │               │
 ```
 
@@ -222,7 +222,7 @@ Typical end-to-end conversation session:
 - Simple queries are answered directly by Gemini's fast TTS and returned as binary `audio_response` frames.
 - Complex tasks trigger a `dispatch_agent` tool call; backend spawns the agent async and Gemini immediately voices an acknowledgment. Backend emits `agent_status{thinking}` heartbeat every 10 s so the UI shows a spinner.
 - While the agent thinks, the user can continue speaking and receive real-time Gemini responses.
-- Agent result sentences stream back progressively as binary `agent_audio` frames; user hears the first sentence well before the agent finishes.
+- When the agent completes, the full response is synthesized via whole-message TTS and sent as `agent_audio` binary frames.
 - User taps Stop; app sends `control: stop`, backend closes the session (cancels all tasks, invalidates token).
 
 ```
@@ -246,15 +246,14 @@ User                  iOS App                 Backend              AI Agents
  │── speak ──────────────►── [bin] audio_chunk ►── Gemini Live ──────►
  │                       │◄── [JSON] "dispatched"│  tool_call ───────►── dispatch_agent
  │◄── hear "on it" ──────│◄── [bin] audio_resp ──│                     │
- │                       │◄── [JSON] status{thinking} every 10s       │── Claude stream ►
+ │                       │◄── [JSON] status{thinking} every 10s       │── agent loop ────►
  │  [spinner: Ellen…]    │                      │                     │
  │  [continue chatting]  │                      │                     │
  │── speak ──────────────►── [bin] audio_chunk ─►── handles directly  │
  │◄── hear response ─────│                      │                     │
- │                       │                      │◄── sentence 1 ──────│
- │◄── hear Ellen s1 ─────│◄── [bin] agent_audio─│                     │
- │                       │                      │◄── sentence 2 ──────│
- │◄── hear Ellen s2 ─────│◄── [bin] agent_audio─│   (streamed)        │
+ │                       │                      │◄── ResultMessage ───│
+ │                       │                      │   synth(full_text)  │
+ │◄── hear Ellen ────────│◄── [bin] agent_audio─│   (whole-message)   │
  │                       │                      │                     │
  │── tap Stop ───────────►── [JSON] ctrl:stop ─►── close session ─────│
  │                       │── DELETE /session ──►  cancel tasks        │
@@ -296,31 +295,31 @@ If resume_agent returns agent_busy, inform the user and try again shortly.
 Follow-up questions are routed to the same agent session rather than spawning a new one.
 
 - First user turn causes Gemini to call `dispatch_agent(ellen, task)`; Agent Task Manager spawns a new session with id `A1`.
-- Claude agent runs asynchronously with streaming enabled. Sentence-level TTS begins immediately as tokens arrive.
-- While Claude runs, the backend emits `agent_status{thinking, elapsed_ms}` heartbeat every 10 s.
-- If no result within 30 s, the task is cancelled: `agent_status{timeout}` is sent and a fallback phrase is synthesized.
+- Agent SDK runs the agent autonomously (tool calls, reasoning). The SDK Agent Runner waits for the full `ResultMessage`, then synthesizes whole-message TTS.
+- While the agent runs, the backend emits `agent_status{thinking, elapsed_ms}` heartbeat every 10 s.
+- If no result within 30 s, the task is cancelled: `agent_status{timeout}` is sent, `sdk_session_id` is cleared (to prevent resuming a broken session), and a fallback phrase is synthesized.
 - User asks a follow-up; Gemini calls `resume_agent(A1, follow_up)`.
-  - If `A1.status == "idle"`: Agent Task Manager appends the follow-up to `A1`'s `conversation_history` and resumes Claude with full context.
+  - If `A1.status == "idle"`: Agent Task Manager re-invokes the SDK Agent Runner with `resume=A1.sdk_session_id`, which continues the agent with full context preserved by the SDK session.
   - If `A1.status == "active"`: immediately return `ToolResponse{error: "agent_busy"}`.
-- Claude responds faster (~5 s) because prior context is preserved; sentences stream back progressively.
+- The agent responds faster (~5 s) because the SDK session preserves full prior context; whole-message TTS fires on the complete response.
 - Session state is held in-memory by the Agent Task Manager with a **2-hour TTL**; the cleanup task cancels orphaned asyncio tasks when TTL expires.
 
 ```
-iOS App          FastAPI Backend          Gemini Live         Agent Task Mgr     Claude Agent (Ellen)
+iOS App          FastAPI Backend          Gemini Live         Agent Task Mgr     Agent SDK (Ellen)
    │                    │                      │                     │                   │
    │── [bin] audio ─────►──── PCM ─────────────►                     │                   │
    │                    │◄── ToolCall:          │                    │                   │
    │                    │    dispatch_agent     │                    │                   │
    │                    │    (ellen, task) ──────────────────────────►                   │
    │                    │                       │             spawn_session(ellen)       │
-   │                    │                       │             agent_session_id=A1 ───────► (stream=True)
+   │                    │                       │             agent_session_id=A1 ───────► query(task)
    │                    │◄── ToolResponse{A1} ──│                    │                   │
-   │◄── [JSON] status{dispatched} ─────────────│                     │   [streaming]     │
-   │◄── [bin] audio_resp│◄── "Ellen is on it" ──│                    │◄── sentence 1 ────│
-   │                    │                       │             synth(s1)→PCM→[bin]        │
-   │◄── [bin] agent_aud─│◄── PCM chunk ──────────────────────────────│◄── sentence 2 ────│
-   │◄── [JSON] status{thinking, 10s} ──────────│                     │   [still running] │
-   │                    │                       │                    │◄── done ──────────│
+   │◄── [JSON] status{dispatched} ─────────────│                     │   [agent loop]    │
+   │◄── [bin] audio_resp│◄── "Ellen is on it" ──│                    │   [tool calls +   │
+   │◄── [JSON] status{thinking, 10s} ──────────│                     │    reasoning]     │
+   │                    │                       │                    │◄── ResultMessage ─│
+   │                    │                       │             synth(full_text)→PCM→[bin] │
+   │◄── [bin] agent_aud─│◄── PCM (whole msg) ───────────────────────│                   │
    │◄── [JSON] status{done} ───────────────────│                     │                   │
    │                    │                       │                    │                   │
    │  [user follow-up]  │                       │                    │                   │
@@ -329,11 +328,11 @@ iOS App          FastAPI Backend          Gemini Live         Agent Task Mgr    
    │                    │    resume_agent       │                    │                   │
    │                    │    (A1, follow_up) ────────────────────────►                   │
    │                    │                       │  [status==idle]    │                   │
-   │                    │                       │  append to history │                   │
-   │                    │                       │  resume Claude(A1) ─────────────────────► (stream)
+   │                    │                       │  resume=sdk_sess_id│                   │
+   │                    │                       │  query(follow_up) ──────────────────────► (resume)
    │                    │◄── ToolResponse{ok} ──│                    │   [~5s]           │
-   │◄── [bin] audio_resp│◄── "checking..." ─────│                    │◄── sentence 1 ────│
-   │◄── [bin] agent_aud─│◄── PCM chunk ──────────────────────────────│                   │
+   │◄── [bin] audio_resp│◄── "checking..." ─────│                    │◄── ResultMessage ─│
+   │◄── [bin] agent_aud─│◄── PCM (whole msg) ───────────────────────│                   │
 ```
 
 **Agent session state** held in `Agent Task Manager` (in-memory, keyed by `agent_session_id`, TTL = 2 hours):
@@ -342,9 +341,12 @@ iOS App          FastAPI Backend          Gemini Live         Agent Task Mgr    
 AgentSession:
     agent_session_id: str          # UUID v4
     agent_name: str                # e.g. "ellen"
-    conversation_history: list     # [{role, content}, ...] — grows with each turn
+    sdk_session_id: str | None     # Agent SDK session ID for resume (cleared on timeout)
+    conversation_history: list     # [{role, content}, ...] — text summary for Gemini context only
     status: "active" | "idle" | "cancelled" | "timeout"
     claude_task: asyncio.Task      # cancelled on interrupt or TTL expiry
     parent_session_id: str         # links back to the user's conversation session
     created_at: float              # epoch; TTL enforced by periodic cleanup task
 ```
+
+**Dual conversation state:** `sdk_session_id` points to the Agent SDK's internal session which holds the full conversation context (tool calls, reasoning, history). `conversation_history` is a lightweight text-only summary fed back to the Gemini moderator so it knows what agents said. These serve different purposes and are not redundant.

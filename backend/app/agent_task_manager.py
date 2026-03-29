@@ -12,9 +12,9 @@ from app.config import AGENT_TASK_TIMEOUT_SECONDS, THINKING_HEARTBEAT_INTERVAL_S
 from app.models import AgentSession
 
 if TYPE_CHECKING:
-    from app.deep_agent_runner import DeepAgentRunner
     from app.models import ConversationSession
     from app.registry import AgentRegistry
+    from app.sdk_agent_runner import SDKAgentRunner
     from app.tts_service import TTSService
 
 logger = logging.getLogger(__name__)
@@ -37,17 +37,18 @@ class AgentTaskManager:
     def __init__(
         self,
         agent_registry: "AgentRegistry",
-        deep_agent_runner: "DeepAgentRunner",
+        agent_runner: "SDKAgentRunner",
         tts_service: "TTSService",
         send_json_fn=None,
         send_agent_audio_fn=None,
     ) -> None:
         self._registry = agent_registry
-        self._runner = deep_agent_runner
+        self._runner = agent_runner
         self._tts = tts_service
         # Pluggable output functions (set by ws handler at startup)
         self.send_json = send_json_fn
         self.send_agent_audio = send_agent_audio_fn
+        self._agent_semaphore = asyncio.Semaphore(8)
 
     # ------------------------------------------------------------------
     # Dispatch
@@ -191,47 +192,48 @@ class AgentTaskManager:
         task: str,
     ) -> None:
         """Wrapper: runs the deep agent with timeout + heartbeat."""
-        heartbeat_task = asyncio.create_task(
-            self._heartbeat_loop(conv_session, agent_session)
-        )
-        try:
-            await asyncio.wait_for(
-                self._runner.run(
-                    agent_session,
-                    task,
-                    conv_session,
-                    deliver_fn=self._deliver_or_queue,
-                ),
-                timeout=AGENT_TASK_TIMEOUT_SECONDS,
+        async with self._agent_semaphore:
+            heartbeat_task = asyncio.create_task(
+                self._heartbeat_loop(conv_session, agent_session)
             )
-            agent_session.status = "idle"
-            if self.send_json:
-                await self.send_json(
-                    conv_session,
-                    {
-                        "type": "agent_status",
-                        "agent_name": agent_session.agent_name,
-                        "agent_session_id": agent_session.agent_session_id,
-                        "status": "done",
-                        "gen_id": conv_session.gen_id,
-                    },
+            try:
+                await asyncio.wait_for(
+                    self._runner.run(
+                        agent_session,
+                        task,
+                        conv_session,
+                        deliver_fn=self._deliver_or_queue,
+                    ),
+                    timeout=AGENT_TASK_TIMEOUT_SECONDS,
                 )
-        except asyncio.TimeoutError:
-            await self._handle_timeout(conv_session, agent_session)
-        except asyncio.CancelledError:
-            agent_session.status = "cancelled"
-        except Exception as exc:
-            logger.error(
-                "Agent %s (%s) crashed: %s",
-                agent_session.agent_name,
-                agent_session.agent_session_id,
-                exc,
-                exc_info=True,
-            )
-            agent_session.status = "idle"
-        finally:
-            heartbeat_task.cancel()
-            agent_session.completion_event.set()  # Fix 3A: unblock meeting sender
+                agent_session.status = "idle"
+                if self.send_json:
+                    await self.send_json(
+                        conv_session,
+                        {
+                            "type": "agent_status",
+                            "agent_name": agent_session.agent_name,
+                            "agent_session_id": agent_session.agent_session_id,
+                            "status": "done",
+                            "gen_id": conv_session.gen_id,
+                        },
+                    )
+            except asyncio.TimeoutError:
+                await self._handle_timeout(conv_session, agent_session)
+            except asyncio.CancelledError:
+                agent_session.status = "cancelled"
+            except Exception as exc:
+                logger.error(
+                    "Agent %s (%s) crashed: %s",
+                    agent_session.agent_name,
+                    agent_session.agent_session_id,
+                    exc,
+                    exc_info=True,
+                )
+                agent_session.status = "idle"
+            finally:
+                heartbeat_task.cancel()
+                agent_session.completion_event.set()  # Fix 3A: unblock meeting sender
 
     # ------------------------------------------------------------------
     # Heartbeat
@@ -273,6 +275,7 @@ class AgentTaskManager:
     ) -> None:
         """Handle 30-s timeout: set status, emit event, synthesize fallback."""
         agent_session.status = "timeout"
+        agent_session.sdk_session_id = None  # don't resume a broken session
 
         if self.send_json:
             await self.send_json(
@@ -289,9 +292,6 @@ class AgentTaskManager:
         # Fix 9: Append a sentinel assistant turn so resume() doesn't produce
         # malformed consecutive-user-messages history.
         fallback = FALLBACK_PHRASES.get(agent_session.agent_name, "Request timed out.")
-        agent_session.conversation_history.append(
-            {"role": "assistant", "content": fallback}
-        )
 
         pcm = await self._tts.synthesize(fallback, agent_session.agent_name)
         if pcm and self.send_agent_audio:

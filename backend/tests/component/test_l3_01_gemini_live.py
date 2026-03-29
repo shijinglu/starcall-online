@@ -46,7 +46,11 @@ async def test_gemini_live_text_round_trip():
         sc = response.server_content
         if sc and sc.model_turn and sc.model_turn.parts:
             for part in sc.model_turn.parts:
-                if part.text or getattr(part, "inline_data", None) or getattr(part, "thought", False):
+                if (
+                    part.text
+                    or getattr(part, "inline_data", None)
+                    or getattr(part, "thought", False)
+                ):
                     return True
         return False
 

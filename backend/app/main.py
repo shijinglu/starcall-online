@@ -9,7 +9,6 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from app.agent_task_manager import AgentTaskManager
-from app.deep_agent_runner import DeepAgentRunner
 from app.gemini_proxy import GeminiLiveProxy
 from app.registry import AgentRegistry
 from app.routers.agents import init_agents_router
@@ -18,6 +17,7 @@ from app.routers.health import init_health_router
 from app.routers.health import router as health_router
 from app.routers.sessions import init_sessions_router
 from app.routers.sessions import router as sessions_router
+from app.sdk_agent_runner import SDKAgentRunner
 from app.session_manager import SessionManager
 from app.tts_service import TTSService
 from app.ws.handler import (
@@ -62,10 +62,10 @@ def create_app() -> FastAPI:
     session_manager = SessionManager()
     agent_registry = AgentRegistry()
     tts_service = TTSService(agent_registry)
-    deep_agent_runner = DeepAgentRunner(agent_registry, tts_service)
+    sdk_agent_runner = SDKAgentRunner(agent_registry, tts_service)
     agent_task_manager = AgentTaskManager(
         agent_registry=agent_registry,
-        deep_agent_runner=deep_agent_runner,
+        agent_runner=sdk_agent_runner,
         tts_service=tts_service,
         send_json_fn=send_json_msg,
         send_agent_audio_fn=send_agent_audio,

@@ -22,6 +22,7 @@ class AgentSession:
     claude_task: Optional[asyncio.Task] = None  # type: ignore[type-arg]
     parent_session_id: str = ""
     created_at: float = field(default_factory=time.time)
+    sdk_session_id: str | None = None
 
     # Meeting-mode fields (Fix 3 / Fix 7)
     audio_buffer: list[bytes] = field(default_factory=list)
@@ -80,3 +81,4 @@ class AgentRegistryEntry:
     speaker_id: int
     system_prompt: str
     tool_set: list[str]
+    subagents: dict = field(default_factory=dict)

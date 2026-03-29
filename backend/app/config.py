@@ -44,3 +44,9 @@ CLEANUP_INTERVAL_SECONDS: float = float(os.getenv("CLEANUP_INTERVAL_SECONDS", "6
 
 # --- Max tool-use rounds per Claude invocation ---
 MAX_TOOL_ROUNDS: int = int(os.getenv("MAX_TOOL_ROUNDS", "10"))
+
+# --- Agent SDK ---
+MAX_AGENT_BUDGET_USD: float = float(os.getenv("MAX_AGENT_BUDGET_USD", "5.0"))
+
+# --- Backend directory (working dir for Agent SDK subprocess) ---
+BACKEND_DIR: Path = _backend_dir

@@ -216,10 +216,16 @@ class GeminiLiveProxy:
             while True:
                 pcm = await session.audio_queue.get()
                 if pcm is None:  # sentinel -> stop
-                    logger.info("[session=%s] Audio send loop: got sentinel, stopping", session.session_id)
+                    logger.info(
+                        "[session=%s] Audio send loop: got sentinel, stopping",
+                        session.session_id,
+                    )
                     break
                 if session.gemini_session is None:
-                    logger.info("[session=%s] Audio send loop: gemini_session is None, stopping", session.session_id)
+                    logger.info(
+                        "[session=%s] Audio send loop: gemini_session is None, stopping",
+                        session.session_id,
+                    )
                     break
                 await session.gemini_session.send_realtime_input(
                     audio=types.Blob(data=pcm, mime_type="audio/pcm;rate=16000")

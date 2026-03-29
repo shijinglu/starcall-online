@@ -161,10 +161,14 @@ final class AudioCaptureEngine {
         }
 
         // Barge-in detection: RMS exceeds noise floor by threshold while audio is playing.
+        // Dispatch off the audio render thread — calling AVAudioPlayerNode.stop()
+        // from within a tap callback deadlocks the audio I/O thread.
         if isPlaying {
             let rmsDB = 20 * log10(rms / max(noiseFloor, 1e-10))
             if rmsDB > bargeInThresholdDB {
-                delegate?.audioCaptureDidDetectBargein()
+                DispatchQueue.main.async { [weak self] in
+                    self?.delegate?.audioCaptureDidDetectBargein()
+                }
             }
         }
 

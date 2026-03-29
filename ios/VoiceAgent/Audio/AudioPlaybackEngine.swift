@@ -86,8 +86,10 @@ final class AudioPlaybackEngine {
     func receiveAudioFrame(header: AudioFrameHeader, pcm: Data) {
         // Zombie audio prevention using RFC 1982 modular arithmetic.
         guard !isStale(frameGen: header.genId, currentGen: currentGen) else {
+            Log.warning("DIAG: discarding stale frame gen=\(header.genId) currentGen=\(currentGen)", tag: "AudioPlaybackEngine")
             return // silently discard stale frame
         }
+        Log.info("DIAG: receiveAudioFrame speaker=\(header.speakerId) gen=\(header.genId) pcmBytes=\(pcm.count) meetingQueueActive=\(meetingQueueActive)", tag: "AudioPlaybackEngine")
 
         if meetingQueueActive {
             // Buffer for sequential meeting delivery.
@@ -149,16 +151,20 @@ final class AudioPlaybackEngine {
 
     /// Flush all playback and reset meeting state for a new generation.
     func flushAllAndStop(newGen: UInt8) {
+        Log.info("DIAG: flushAllAndStop newGen=\(newGen) oldGen=\(currentGen) playerNodes=\(playerNodes.count) thread=\(Thread.current)", tag: "AudioPlaybackEngine")
         currentGen = newGen
 
         // Stop all player nodes and clear all queues.
-        for (_, node) in playerNodes {
+        for (speakerId, node) in playerNodes {
+            Log.info("DIAG: stopping node speaker=\(speakerId) isPlaying=\(node.isPlaying)", tag: "AudioPlaybackEngine")
             node.stop()
+            Log.info("DIAG: stopped node speaker=\(speakerId)", tag: "AudioPlaybackEngine")
         }
         frameQueues.removeAll()
         meetingOrder.removeAll()
         currentMeetingSpeaker = nil
         meetingQueueActive = false
+        Log.info("DIAG: flushAllAndStop complete", tag: "AudioPlaybackEngine")
     }
 
     // MARK: - Skip Speaker (Meeting Mode)

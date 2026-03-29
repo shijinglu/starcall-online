@@ -127,6 +127,7 @@ final class ConversationSession: NSObject {
 
     /// Stop the current conversation session.
     func stop() async {
+        Log.info("DIAG: stop() called, current state=\(state) thread=\(Thread.current)", tag: "ConversationSession")
         state = .stopped
 
         // Stop audio capture.
@@ -156,11 +157,16 @@ final class ConversationSession: NSObject {
     ///
     /// Increments currentGen, flushes playback, and sends interrupt to the server.
     func handleBargein() {
-        guard state == .active else { return }
+        guard state == .active else {
+            Log.warning("DIAG: handleBargein SKIPPED, state=\(state)", tag: "ConversationSession")
+            return
+        }
 
         currentGen = currentGen &+ 1
+        Log.info("DIAG: handleBargein firing, newGen=\(currentGen) thread=\(Thread.current)", tag: "ConversationSession")
         playbackEngine.flushAllAndStop(newGen: currentGen)
         transport.sendJSON(["type": "interrupt", "mode": "cancel_all"])
+        Log.info("DIAG: handleBargein complete", tag: "ConversationSession")
     }
 
     /// Handle server-side interruption confirmation.
@@ -173,6 +179,7 @@ final class ConversationSession: NSObject {
 
     /// Handle a server interruption JSON message.
     func handleServerInterruption(genId: UInt8) {
+        Log.info("DIAG: handleServerInterruption genId=\(genId) currentGen=\(currentGen)", tag: "ConversationSession")
         handleInterruptionConfirmed(serverGenId: genId)
         // Flush playback with server's gen_id to discard stale audio.
         playbackEngine.flushAllAndStop(newGen: currentGen)
@@ -270,7 +277,10 @@ final class ConversationSession: NSObject {
 extension ConversationSession: WebSocketTransportDelegate {
 
     func transportDidReceiveBinaryFrame(_ data: Data) {
-        guard let header = AudioFrameHeader(data: data) else { return }
+        guard let header = AudioFrameHeader(data: data) else {
+            Log.warning("DIAG: transportDidReceiveBinaryFrame invalid header, dataSize=\(data.count)", tag: "ConversationSession")
+            return
+        }
         let pcm = Data(data.dropFirst(AudioFrameHeader.size))
         playbackEngine.receiveAudioFrame(header: header, pcm: pcm)
 
@@ -280,6 +290,7 @@ extension ConversationSession: WebSocketTransportDelegate {
     }
 
     func transportDidReceiveTextFrame(_ text: String) {
+        Log.info("DIAG: textFrame received: \(text.prefix(200))", tag: "ConversationSession")
         guard let data = text.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = json["type"] as? String else { return }
@@ -297,7 +308,8 @@ extension ConversationSession: WebSocketTransportDelegate {
         case "error":
             handleError(json)
         default:
-            break // Ignore unknown message types gracefully.
+            Log.info("DIAG: unknown message type '\(type)'", tag: "ConversationSession")
+            break
         }
     }
 
@@ -320,8 +332,7 @@ extension ConversationSession: WebSocketTransportDelegate {
 
     func transportDidDisconnect(error: Error?) {
         // Transport handles reconnection internally with exponential backoff.
-        // We just log the event here.
-        Log.warning("Transport disconnected: \(error?.localizedDescription ?? "unknown")", tag: "ConversationSession")
+        Log.warning("DIAG: Transport disconnected, state=\(state), error=\(error?.localizedDescription ?? "none")", tag: "ConversationSession")
     }
 }
 
@@ -330,6 +341,7 @@ extension ConversationSession: WebSocketTransportDelegate {
 extension ConversationSession: AudioCaptureEngineDelegate {
 
     func audioCaptureDidDetectBargein() {
+        Log.info("DIAG: audioCaptureDidDetectBargein fired", tag: "ConversationSession")
         // Trigger 1: Local RMS detection during playback.
         handleBargein()
     }
@@ -348,8 +360,8 @@ extension ConversationSession: AudioCaptureEngineDelegate {
             return Array(UnsafeBufferPointer(start: bound, count: rawBuffer.count / MemoryLayout<Int16>.size))
         }
         let rms = audioCaptureEngine.computeRMS(samples)
-        if frameSeq == 1 || frameSeq % 100 == 0 {
-            Log.info("Audio chunk #\(frameSeq): \(data.count) bytes, rms=\(rms)", tag: "ConversationSession")
+        if frameSeq == 1 || frameSeq % 50 == 0 {
+            Log.info("DIAG: Audio chunk #\(frameSeq): \(data.count) bytes, rms=\(rms) state=\(state) isPlaying=\(audioCaptureEngine.isPlaying) gen=\(currentGen)", tag: "ConversationSession")
         }
         delegate?.sessionDidUpdateMicAmplitude(rms)
     }

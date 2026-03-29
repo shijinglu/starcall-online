@@ -57,3 +57,4 @@ Open `ios/VoiceAgent.xcodeproj` in Xcode, select an iOS 17+ simulator, and run.
 - **Backend**: Python 3.11+, FastAPI, `google-genai` (Gemini Live API), `anthropic` (Claude agents), Google Cloud TTS, uv
 - **iOS**: Swift 5.9, SwiftUI, AVFoundation, WebSocket
 - **Protocol**: Single WebSocket (`/api/v1/conversation/live`) carrying binary audio frames + JSON control messages
+- **iOS MCP Tools**: `mobile-mcp` (UI automation, screenshots, gestures) and `XcodeBuildMCP` (build, run, test, simulator management)

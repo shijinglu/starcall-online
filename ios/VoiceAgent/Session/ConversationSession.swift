@@ -44,6 +44,9 @@ final class ConversationSession: NSObject {
     /// Base URL for the backend server.
     var baseURL: URL
 
+    /// Whether microphone input is muted (audio capture continues but chunks are not sent).
+    private(set) var isMuted: Bool = false
+
     /// Frame sequence counter for outbound audio chunks.
     private var frameSeq: UInt8 = 0
 
@@ -77,6 +80,11 @@ final class ConversationSession: NSObject {
     /// 1. POST /sessions to get session_id + auth_token
     /// 2. Open WebSocket with the token
     /// 3. Start audio capture
+    /// Reset the session to idle so it can be started again.
+    func resetToIdle() {
+        state = .idle
+    }
+
     func start() async throws {
         guard state == .idle else { return }
         state = .connecting
@@ -183,6 +191,13 @@ final class ConversationSession: NSObject {
         handleInterruptionConfirmed(serverGenId: genId)
         // Flush playback with server's gen_id to discard stale audio.
         playbackEngine.flushAllAndStop(newGen: currentGen)
+    }
+
+    // MARK: - Mute
+
+    /// Set muted state. When muted, audio chunks are not sent to the server.
+    func setMuted(_ muted: Bool) {
+        isMuted = muted
     }
 
     // MARK: - Skip Speaker
@@ -348,6 +363,12 @@ extension ConversationSession: AudioCaptureEngineDelegate {
 
     func audioCaptureDidProduceChunk(_ data: Data) {
         guard state == .active else { return }
+
+        // When muted, still compute amplitude for UI but don't send audio.
+        guard !isMuted else {
+            delegate?.sessionDidUpdateMicAmplitude(0.0)
+            return
+        }
 
         // Send the 100ms PCM chunk as a binary WS frame.
         transport.sendAudioChunk(data, frameSeq: frameSeq)

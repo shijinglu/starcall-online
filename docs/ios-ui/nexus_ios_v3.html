@@ -1,0 +1,305 @@
+
+<style>
+  .wrap { display:flex; flex-direction:column; align-items:center; padding:2rem 0 1.5rem; gap:1.5rem; }
+  .phone { width:375px; height:812px; background:#0a0a10; border-radius:44px; overflow:hidden; border:1.5px solid #252530; position:relative; display:flex; flex-direction:column; }
+  .notch { width:126px; height:34px; background:#0a0a10; border-radius:0 0 20px 20px; position:absolute; top:0; left:50%; transform:translateX(-50%); z-index:10; }
+
+  .sbar { height:52px; display:flex; align-items:flex-end; justify-content:space-between; padding:0 26px 8px; flex-shrink:0; }
+  .sbar-time { color:#dddde8; font-size:15px; font-weight:500; letter-spacing:-0.3px; }
+  .sbar-icons { display:flex; gap:7px; align-items:center; }
+  .sbar-bat { width:24px; height:12px; border:1.5px solid #dddde8; border-radius:3px; position:relative; }
+  .sbar-bat::after { content:''; position:absolute; right:-5px; top:50%; transform:translateY(-50%); width:3px; height:6px; background:#dddde8; border-radius:0 2px 2px 0; }
+  .sbar-bat-fill { position:absolute; top:2px; left:2px; bottom:2px; width:62%; background:#dddde8; border-radius:1.5px; }
+  .sig { display:flex; gap:2px; align-items:flex-end; }
+  .sig-bar { width:3px; border-radius:1px; background:#dddde8; }
+
+  .header { padding:4px 26px 0; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
+  .app-name { color:#dddde8; font-size:23px; font-weight:700; letter-spacing:-1px; }
+  .app-name em { color:#2cc8a4; font-style:normal; }
+  .session-tag { font-size:11px; color:#3a3a50; letter-spacing:0.8px; text-transform:uppercase; }
+
+  .divider { height:1px; background:#14141e; margin:10px 26px 0; flex-shrink:0; }
+
+  .agents-strip { padding:14px 26px 0; display:none; flex-shrink:0; }
+  .agents-strip.visible { display:block; }
+  .agents-label { font-size:10px; letter-spacing:1.2px; color:#3a3a50; text-transform:uppercase; margin-bottom:12px; }
+  .agents-row { display:flex; gap:20px; }
+
+  /* Avatar ring style matching screenshot */
+  .agent-card { display:flex; flex-direction:column; align-items:center; gap:7px; }
+  .agent-av-wrap { position:relative; width:52px; height:52px; }
+  .agent-av-ring { width:52px; height:52px; border-radius:50%; border:2px solid; background:#111118; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:600; letter-spacing:0.3px; box-sizing:border-box; }
+  .agent-av-ring.thinking { animation: av-think 1.8s ease-in-out infinite; }
+  .agent-av-ring.speaking { animation: av-speak 0.9s ease-in-out infinite; }
+  @keyframes av-think { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  @keyframes av-speak { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
+  .sdot { position:absolute; bottom:1px; right:1px; width:10px; height:10px; border-radius:50%; border:2px solid #0a0a10; }
+  .sdot.thinking { background:#f5a623; }
+  .sdot.speaking { background:#2cc8a4; animation: dot-blink 0.8s ease-in-out infinite; }
+  .sdot.done { background:#2cc8a4; }
+  @keyframes dot-blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+  .agent-name { font-size:11px; color:#55556a; letter-spacing:0.2px; }
+
+  .feed { flex:1; overflow:hidden; display:flex; flex-direction:column; gap:0; padding:14px 0 0; }
+  .feed-inner { display:flex; flex-direction:column; gap:10px; padding:0 26px; overflow:hidden; }
+  .msg { display:flex; gap:10px; align-items:flex-start; }
+  .msg-who { font-size:10px; letter-spacing:0.6px; min-width:52px; padding-top:3px; font-weight:600; flex-shrink:0; }
+  .msg-who.you { color:#5580ff; }
+  .msg-who.nexus { color:#2cc8a4; }
+  .msg-who.ellen { color:#e879a0; }
+  .msg-who.shijing { color:#f5a623; }
+  .msg-who.eva { color:#a78bfa; }
+  .msg-who.ming { color:#17b8d4; }
+  .msg-body { font-size:13px; color:#a8a8be; line-height:1.55; }
+  .msg-body.muted { color:#3e3e54; }
+  .typing-dots { display:inline-flex; gap:4px; align-items:center; height:18px; }
+  .typing-dots span { width:5px; height:5px; border-radius:50%; background:#3e3e54; animation:tblink 1.3s ease-in-out infinite; }
+  .typing-dots span:nth-child(2) { animation-delay:.2s; }
+  .typing-dots span:nth-child(3) { animation-delay:.4s; }
+  @keyframes tblink { 0%,100%{opacity:0.25;transform:scale(1)} 50%{opacity:1;transform:scale(1.2)} }
+
+  .spacer { flex:1; }
+
+  .bottom { padding:14px 26px 28px; border-top:1px solid #12121c; flex-shrink:0; }
+  .bottom-row { display:flex; align-items:center; justify-content:space-between; }
+  .side-btn { width:44px; height:44px; border-radius:50%; background:#111118; border:1px solid #1e1e2c; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+
+  .mic-btn { width:68px; height:68px; border-radius:50%; position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; }
+  .mic-core { width:68px; height:68px; border-radius:50%; background:#111820; border:1.5px solid #2cc8a4; display:flex; align-items:center; justify-content:center; position:relative; z-index:2; transition:all 0.25s; }
+  .mic-core.active { background:#0f1c18; }
+  .mic-ring1 { position:absolute; width:68px; height:68px; border-radius:50%; border:1.5px solid #2cc8a430; z-index:1; display:none; }
+  .mic-ring2 { position:absolute; width:68px; height:68px; border-radius:50%; border:1px solid #2cc8a415; z-index:0; display:none; }
+  .mic-btn.active .mic-ring1 { display:block; animation: ring-pulse1 1.6s ease-out infinite; }
+  .mic-btn.active .mic-ring2 { display:block; animation: ring-pulse2 1.6s ease-out infinite 0.4s; }
+  @keyframes ring-pulse1 { 0%{transform:scale(1);opacity:1} 100%{transform:scale(1.7);opacity:0} }
+  @keyframes ring-pulse2 { 0%{transform:scale(1);opacity:0.7} 100%{transform:scale(2.1);opacity:0} }
+  .mic-wave { display:none; gap:2.5px; align-items:center; height:18px; }
+  .mic-btn.active .mic-wave { display:flex; }
+  .mic-btn.active .mic-icon { display:none; }
+  .wv { width:2.5px; border-radius:2px; background:#2cc8a4; }
+  .wv:nth-child(1) { animation:wv 0.85s ease-in-out -0.5s infinite; }
+  .wv:nth-child(2) { animation:wv 0.85s ease-in-out -0.3s infinite; }
+  .wv:nth-child(3) { animation:wv 0.85s ease-in-out -0.1s infinite; }
+  .wv:nth-child(4) { animation:wv 0.85s ease-in-out -0.4s infinite; }
+  .wv:nth-child(5) { animation:wv 0.85s ease-in-out -0.2s infinite; }
+  @keyframes wv { 0%,100%{height:4px} 50%{height:16px} }
+  .mic-status { font-size:10px; color:#2cc8a4; letter-spacing:0.8px; text-align:center; margin-top:6px; }
+  .mic-status.off { color:#3a3a50; }
+
+  .state-btns { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+  .state-btn { padding:7px 16px; border-radius:20px; font-size:12px; border:1px solid var(--color-border-secondary); color:var(--color-text-secondary); background:var(--color-background-secondary); cursor:pointer; font-family:var(--font-sans); transition:all 0.15s; }
+  .state-btn:hover { background:var(--color-background-primary); }
+  .state-btn.sel { border-color:#2cc8a4; color:#2cc8a4; }
+
+  .idle-block { padding:16px 26px 0; }
+  .idle-greeting { font-size:19px; color:#dddde8; font-weight:500; letter-spacing:-0.5px; margin:0 0 3px; }
+  .idle-sub { font-size:13px; color:#3a3a50; margin:0 0 20px; }
+  .recents-label { font-size:10px; letter-spacing:1.2px; color:#3a3a50; text-transform:uppercase; margin:0 0 8px; }
+  .recent-item { padding:10px 12px; border-radius:12px; background:#0f0f18; border:1px solid #181824; cursor:pointer; margin-bottom:4px; }
+  .ri-top { display:flex; justify-content:space-between; align-items:center; }
+  .ri-title { font-size:13px; color:#b8b8cc; font-weight:500; }
+  .ri-time { font-size:11px; color:#30304a; }
+  .ri-preview { font-size:11px; color:#3a3a50; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+</style>
+
+<div class="wrap">
+  <div class="phone">
+    <div class="notch"></div>
+
+    <div class="sbar">
+      <div class="sbar-time">9:41</div>
+      <div class="sbar-icons">
+        <div class="sig">
+          <div class="sig-bar" style="height:5px"></div>
+          <div class="sig-bar" style="height:7px"></div>
+          <div class="sig-bar" style="height:9px"></div>
+          <div class="sig-bar" style="height:11px"></div>
+        </div>
+        <div class="sbar-bat"><div class="sbar-bat-fill"></div></div>
+      </div>
+    </div>
+
+    <div class="header">
+      <div class="app-name">NEX<em>US</em></div>
+      <div class="session-tag" id="session-tag">NO SESSION</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="agents-strip" id="agents-strip">
+      <div class="agents-label">Active agents</div>
+      <div class="agents-row" id="agents-row"></div>
+    </div>
+
+    <div class="feed">
+      <div class="feed-inner" id="feed"></div>
+      <div class="spacer"></div>
+    </div>
+
+    <div class="bottom">
+      <div class="bottom-row">
+        <div class="side-btn" id="mute-btn" onclick="toggleMute()">
+          <svg id="mute-icon" width="18" height="18" fill="none" stroke="#666" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        </div>
+
+        <div style="display:flex;flex-direction:column;align-items:center;">
+          <div class="mic-btn" id="mic-btn" onclick="toggleSession()">
+            <div class="mic-ring1"></div>
+            <div class="mic-ring2"></div>
+            <div class="mic-core" id="mic-core">
+              <div class="mic-icon">
+                <svg width="24" height="24" fill="none" stroke="#2cc8a4" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+              </div>
+              <div class="mic-wave">
+                <div class="wv"></div><div class="wv"></div><div class="wv"></div><div class="wv"></div><div class="wv"></div>
+              </div>
+            </div>
+          </div>
+          <div class="mic-status off" id="mic-status">TAP TO START</div>
+        </div>
+
+        <div class="side-btn">
+          <svg width="18" height="18" fill="none" stroke="#666" stroke-width="1.5" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.95"/></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="state-btns">
+    <button class="state-btn sel" onclick="setState('idle',this)">Idle</button>
+    <button class="state-btn" onclick="setState('listening',this)">Listening</button>
+    <button class="state-btn" onclick="setState('agents_called',this)">Agents called</button>
+    <button class="state-btn" onclick="setState('agents_responding',this)">Agents responding</button>
+  </div>
+</div>
+
+<script>
+const agentDefs = {
+  shijing: { initials:'SJ', ringColor:'#f5a623', textColor:'#f5a623', name:'Shijing' },
+  eva:     { initials:'EV', ringColor:'#a78bfa', textColor:'#a78bfa', name:'Eva' },
+  ming:    { initials:'MG', ringColor:'#17b8d4', textColor:'#17b8d4', name:'Ming' },
+  ellen:   { initials:'EL', ringColor:'#e879a0', textColor:'#e879a0', name:'Ellen' },
+};
+
+const scenes = {
+  idle: {
+    active:false, sessionTag:'NO SESSION', agents:[], messages:[], idleContent:true,
+  },
+  listening: {
+    active:true, sessionTag:'LIVE', agents:[],
+    messages:[
+      {who:'YOU', cls:'you', text:'What\'s the latest fraud spike about?'},
+      {who:'NEXUS', cls:'nexus', text:'Checking the incident log — a cluster of ACH returns flagged this morning, concentrated in three merchants.'},
+      {who:'YOU', cls:'you', text:'Please call Shijing, Eva and Ming and have them take a closer look.'},
+      {who:'NEXUS', cls:'nexus', text:'On it — pulling them in now.'},
+    ],
+  },
+  agents_called: {
+    active:true, sessionTag:'LIVE · 3 AGENTS',
+    agents:[
+      {key:'shijing', status:'thinking'},
+      {key:'eva',     status:'thinking'},
+      {key:'ming',    status:'thinking'},
+    ],
+    messages:[
+      {who:'YOU', cls:'you', text:'Please call Shijing, Eva and Ming and have them take a closer look.', muted:true},
+      {who:'NEXUS', cls:'nexus', text:'Shijing, Eva, and Ming are online — they\'re digging in now.', muted:true},
+      {who:'NEXUS', cls:'nexus', text:'Hang tight boss, they\'re on it.'},
+    ],
+  },
+  agents_responding: {
+    active:true, sessionTag:'LIVE · 3 AGENTS',
+    agents:[
+      {key:'shijing', status:'done'},
+      {key:'eva',     status:'speaking'},
+      {key:'ming',    status:'thinking'},
+    ],
+    messages:[
+      {who:'SHIJING', cls:'shijing', text:'Flagged accounts all passed identity checks but attempted KYC three or more times.', muted:true},
+      {who:'EVA', cls:'eva', text:'Spike is in three merchants, all electronics. One user drives roughly 60% of the returns. Credit profile looks clean — digging deeper.'},
+      {who:'MING', cls:'ming', text:'', typing:true},
+    ],
+  },
+};
+
+let muted = false;
+
+function renderScene(key) {
+  const s = scenes[key];
+  document.getElementById('session-tag').textContent = s.sessionTag;
+
+  const micBtn = document.getElementById('mic-btn');
+  const micCore = document.getElementById('mic-core');
+  const micStatus = document.getElementById('mic-status');
+  if (s.active) {
+    micBtn.classList.add('active');
+    micCore.classList.add('active');
+    micStatus.textContent = 'LISTENING';
+    micStatus.classList.remove('off');
+  } else {
+    micBtn.classList.remove('active');
+    micCore.classList.remove('active');
+    micStatus.textContent = 'TAP TO START';
+    micStatus.classList.add('off');
+  }
+
+  const strip = document.getElementById('agents-strip');
+  const row = document.getElementById('agents-row');
+  if (s.agents && s.agents.length > 0) {
+    strip.classList.add('visible');
+    row.innerHTML = s.agents.map(a => {
+      const def = agentDefs[a.key];
+      return `<div class="agent-card">
+        <div class="agent-av-wrap">
+          <div class="agent-av-ring ${a.status}" style="border-color:${def.ringColor};color:${def.textColor}">
+            ${def.initials}
+          </div>
+          <div class="sdot ${a.status}"></div>
+        </div>
+        <div class="agent-name">${def.name}</div>
+      </div>`;
+    }).join('');
+  } else {
+    strip.classList.remove('visible');
+    row.innerHTML = '';
+  }
+
+  const feed = document.getElementById('feed');
+  if (s.idleContent) {
+    feed.innerHTML = `<div class="idle-block">
+      <p class="idle-greeting">Good morning.</p>
+      <p class="idle-sub">Tap the mic to start a session</p>
+      <div class="recents-label">Recent sessions</div>
+      <div class="recent-item"><div class="ri-top"><span class="ri-title">ACH return investigation</span><span class="ri-time">2h ago</span></div><div class="ri-preview">Ming: synthetic ID cluster in EU region identified...</div></div>
+      <div class="recent-item"><div class="ri-top"><span class="ri-title">Weekly metrics brief</span><span class="ri-time">Yesterday</span></div><div class="ri-preview">Ellen: processing volume $4.2M in the last hour...</div></div>
+      <div class="recent-item"><div class="ri-top"><span class="ri-title">London time check</span><span class="ri-time">Mon</span></div><div class="ri-preview">It is 3:15 PM in London, 7:15 AM tomorrow in Tokyo.</div></div>
+    </div>`;
+  } else {
+    feed.innerHTML = (s.messages||[]).map(m => {
+      const bodyClass = 'msg-body' + (m.muted ? ' muted' : '');
+      const body = m.typing
+        ? `<div class="typing-dots"><span></span><span></span><span></span></div>`
+        : m.text;
+      return `<div class="msg"><div class="msg-who ${m.cls}">${m.who}</div><div class="${bodyClass}">${body}</div></div>`;
+    }).join('');
+  }
+}
+
+function setState(key, btn) {
+  document.querySelectorAll('.state-btn').forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+  renderScene(key);
+}
+
+function toggleSession() {
+  const isActive = document.getElementById('mic-btn').classList.contains('active');
+  setState(isActive ? 'idle' : 'listening', document.querySelectorAll('.state-btn')[isActive ? 0 : 1]);
+}
+
+function toggleMute() {
+  muted = !muted;
+  document.getElementById('mute-icon').style.stroke = muted ? '#e84a4a' : '#666';
+}
+
+renderScene('idle');
+</script>

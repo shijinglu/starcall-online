@@ -13,6 +13,8 @@ targets:
       - path: VoiceAgent
     info:
       path: VoiceAgent/App/Info.plist
+      properties:
+        UILaunchScreen: {}
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.shijinglu.VoiceAgent
@@ -21,3 +23,31 @@ targets:
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: false
     dependencies: []
+
+  VoiceAgentUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: VoiceAgentUITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shijinglu.VoiceAgent.UITests
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: true
+        TEST_TARGET_NAME: VoiceAgent
+    dependencies:
+      - target: VoiceAgent
+
+schemes:
+  VoiceAgent:
+    build:
+      targets:
+        VoiceAgent: all
+        VoiceAgentUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - VoiceAgentUITests

@@ -20,12 +20,5 @@
 	<string>1</string>
 	<key>UILaunchScreen</key>
 	<dict/>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>VoiceAgent needs microphone access for voice conversations.</string>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-	</dict>
 </dict>
 </plist>

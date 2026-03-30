@@ -1,12 +1,13 @@
 import SwiftUI
 
-/// Main conversation UI.
+/// Main NEXUS conversation UI.
 ///
-/// Layout:
-/// - Transcript scroll view (top)
-/// - Agent status row (middle)
-/// - Meeting progress bar (when active)
-/// - Mic waveform + start/stop button (bottom)
+/// Layout (top to bottom):
+/// - Header: App name + session tag
+/// - Divider
+/// - Agent strip (hidden until agents dispatched)
+/// - Conversation feed (idle greeting or message list)
+/// - Bottom bar: mute, mic, history
 public struct ContentView: View {
     @StateObject private var viewModel = ConversationViewModel()
 
@@ -14,54 +15,206 @@ public struct ContentView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // MARK: - Transcript
-            transcriptSection
-
-            Divider()
-
-            // MARK: - Agent Status
-            agentStatusSection
-
-            // MARK: - Meeting Progress
-            if let progress = viewModel.meetingProgress {
-                MeetingProgressView(
-                    completed: progress.completed,
-                    total: progress.totalAgents,
-                    pending: progress.pending
-                )
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-            }
-
-            Divider()
-
-            // MARK: - Mic Waveform & Controls
-            controlSection
+            headerView
+            dividerLine
+            agentStrip
+            conversationFeed
+            Spacer(minLength: 0)
+            bottomBar
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(NexusTheme.background.ignoresSafeArea())
+        .preferredColorScheme(.dark)
+        .accessibilityIdentifier("mainContent")
         .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
-            Button("OK") {
-                viewModel.errorMessage = nil
-            }
+            Button("OK") { viewModel.errorMessage = nil }
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
     }
 
-    // MARK: - Transcript Section
+    // MARK: - Header
 
-    private var transcriptSection: some View {
+    private var headerView: some View {
+        HStack {
+            // NEX*US* with teal accent
+            HStack(spacing: 0) {
+                Text("NEX")
+                    .foregroundColor(NexusTheme.primaryText)
+                Text("US")
+                    .foregroundColor(NexusTheme.teal)
+            }
+            .font(.system(size: 23, weight: .bold))
+            .tracking(-1)
+
+            Spacer()
+
+            Text(sessionTagText)
+                .font(.system(size: 11))
+                .tracking(0.8)
+                .foregroundColor(NexusTheme.labelText)
+                .textCase(.uppercase)
+        }
+        .padding(.horizontal, 26)
+        .padding(.top, 4)
+    }
+
+    private var sessionTagText: String {
+        switch viewModel.sessionState {
+        case .idle, .stopped:
+            return "NO SESSION"
+        case .connecting:
+            return "CONNECTING"
+        case .active:
+            let agentCount = viewModel.agentStatuses.count
+            if agentCount > 0 {
+                return "LIVE · \(agentCount) AGENTS"
+            }
+            return "LIVE"
+        }
+    }
+
+    // MARK: - Divider
+
+    private var dividerLine: some View {
+        Rectangle()
+            .fill(NexusTheme.divider)
+            .frame(height: 1)
+            .padding(.horizontal, 26)
+            .padding(.top, 10)
+    }
+
+    // MARK: - Agent Strip
+
+    @ViewBuilder
+    private var agentStrip: some View {
+        if !viewModel.agentStatuses.isEmpty {
+            let activeAgents: [(definition: AgentDefinition, status: AgentStatusKind)] =
+                agentNames.compactMap { name in
+                    guard let status = viewModel.agentStatuses[name],
+                          let def = AgentDefinition.definition(for: name) else { return nil }
+                    return (def, status)
+                }
+
+            if !activeAgents.isEmpty {
+                AgentStripView(
+                    agents: activeAgents,
+                    currentlyPlayingSpeaker: viewModel.currentlyPlayingSpeaker
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+                .animation(.easeInOut(duration: 0.3), value: viewModel.agentStatuses.count)
+            }
+        }
+    }
+
+    // MARK: - Conversation Feed
+
+    private var conversationFeed: some View {
+        Group {
+            if viewModel.sessionState == .idle && viewModel.transcript.isEmpty {
+                idleContentView
+            } else {
+                messageListView
+            }
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    // MARK: - Idle Content
+
+    private var idleContentView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(greetingText)
+                .font(.system(size: 19, weight: .medium))
+                .foregroundColor(NexusTheme.primaryText)
+                .tracking(-0.5)
+                .padding(.bottom, 3)
+
+            Text("Tap the mic to start a session")
+                .font(.system(size: 13))
+                .foregroundColor(NexusTheme.labelText)
+                .padding(.bottom, 20)
+
+            Text("RECENT SESSIONS")
+                .font(.system(size: 10))
+                .tracking(1.2)
+                .foregroundColor(NexusTheme.labelText)
+                .padding(.bottom, 8)
+
+            // Placeholder recent sessions (no backend support yet)
+            recentSessionItem(
+                title: "ACH return investigation",
+                time: "2h ago",
+                preview: "Ming: synthetic ID cluster in EU region identified..."
+            )
+            recentSessionItem(
+                title: "Weekly metrics brief",
+                time: "Yesterday",
+                preview: "Ellen: processing volume $4.2M in the last hour..."
+            )
+            recentSessionItem(
+                title: "London time check",
+                time: "Mon",
+                preview: "It is 3:15 PM in London, 7:15 AM tomorrow in Tokyo."
+            )
+
+            Spacer()
+        }
+        .padding(.horizontal, 26)
+        .padding(.top, 16)
+    }
+
+    private var greetingText: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        if hour < 12 { return "Good morning." }
+        if hour < 17 { return "Good afternoon." }
+        return "Good evening."
+    }
+
+    private func recentSessionItem(title: String, time: String, preview: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Color(hex: 0xB8B8CC))
+                Spacer()
+                Text(time)
+                    .font(.system(size: 11))
+                    .foregroundColor(NexusTheme.subtitleText)
+            }
+            Text(preview)
+                .font(.system(size: 11))
+                .foregroundColor(NexusTheme.labelText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(NexusTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(NexusTheme.cardBorder, lineWidth: 1)
+        )
+        .padding(.bottom, 4)
+    }
+
+    // MARK: - Message List
+
+    private var messageListView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(viewModel.transcript) { line in
-                        TranscriptLineView(line: line)
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(viewModel.transcript.enumerated()), id: \.element.id) { index, line in
+                        let isMuted = isOlderMessage(index: index)
+                        MessageRowView(line: line, isMuted: isMuted)
                             .id(line.id)
                     }
                 }
-                .padding()
+                .padding(.horizontal, 26)
+                .padding(.top, 14)
             }
             .onChange(of: viewModel.transcript.count) { _, _ in
-                // Auto-scroll to the latest transcript line.
                 if let lastId = viewModel.transcript.last?.id {
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo(lastId, anchor: .bottom)
@@ -69,160 +222,255 @@ public struct ContentView: View {
                 }
             }
         }
-        .frame(maxHeight: .infinity)
     }
 
-    // MARK: - Agent Status Section
+    /// Older messages (not in the last 3) get dimmed.
+    private func isOlderMessage(index: Int) -> Bool {
+        let total = viewModel.transcript.count
+        return total > 3 && index < total - 3
+    }
 
-    private var agentStatusSection: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(agentNames, id: \.self) { name in
-                    let status = viewModel.agentStatuses[name] ?? .cancelled
-                    let speakerId = speakerIdForAgent(name)
-                    let isSpeaking = viewModel.currentlyPlayingSpeaker == speakerId
+    // MARK: - Bottom Bar
 
-                    AgentStatusCard(
-                        agentName: name,
-                        status: status,
-                        elapsedMs: viewModel.agentElapsedMs[name],
-                        isCurrentlySpeaking: isSpeaking,
-                        onSkip: {
-                            viewModel.sendSkipSpeaker()
-                        }
-                    )
-                }
+    private var bottomBar: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(NexusTheme.bottomBorder)
+                .frame(height: 1)
+
+            HStack(alignment: .center) {
+                // Mute button
+                muteButton
+
+                Spacer()
+
+                // Mic button
+                micButton
+
+                Spacer()
+
+                // History button
+                historyButton
             }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 26)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
         }
-        .opacity(viewModel.agentStatuses.isEmpty ? 0 : 1)
     }
 
-    // MARK: - Control Section
+    // MARK: - Mute Button
 
-    private var controlSection: some View {
-        VStack(spacing: 16) {
-            // Mic waveform visualization.
-            MicWaveformView(amplitude: viewModel.micAmplitude)
-                .frame(height: 40)
-                .padding(.horizontal)
+    private var muteButton: some View {
+        Button(action: { viewModel.toggleMute() }) {
+            ZStack {
+                Circle()
+                    .fill(NexusTheme.sideButtonBg)
+                    .frame(width: 44, height: 44)
+                    .overlay(Circle().stroke(NexusTheme.sideButtonBorder, lineWidth: 1))
 
-            // Start / Stop button.
-            Button(action: {
-                switch viewModel.sessionState {
-                case .idle, .stopped:
-                    viewModel.reset()
-                    viewModel.tapStart()
-                case .active, .connecting:
-                    viewModel.tapStop()
+                Image(systemName: viewModel.isMuted ? "mic.slash" : "mic")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(viewModel.isMuted ? NexusTheme.muteRed : Color(hex: 0x666666))
+            }
+        }
+    }
+
+    // MARK: - Mic Button
+
+    private var micButton: some View {
+        VStack(spacing: 6) {
+            Button(action: { handleMicTap() }) {
+                ZStack {
+                    // Pulse rings (visible when active)
+                    if isSessionActive {
+                        PulseRingView()
+                    }
+
+                    // Core circle
+                    Circle()
+                        .fill(isSessionActive ? NexusTheme.micCoreActiveBg : NexusTheme.micCoreBg)
+                        .frame(width: 68, height: 68)
+                        .overlay(
+                            Circle()
+                                .stroke(NexusTheme.teal, lineWidth: 1.5)
+                        )
+                        .overlay(
+                            Group {
+                                if isSessionActive {
+                                    // Wave bars
+                                    WaveBarsView()
+                                } else {
+                                    // Mic icon
+                                    Image(systemName: "mic.fill")
+                                        .font(.system(size: 20))
+                                        .foregroundColor(NexusTheme.teal)
+                                }
+                            }
+                        )
                 }
-            }) {
-                Text(buttonLabel)
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(buttonColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             .disabled(viewModel.sessionState == .connecting)
-            .padding(.horizontal)
-            .padding(.bottom, 16)
+
+            Text(micStatusText)
+                .font(.system(size: 10))
+                .tracking(0.8)
+                .foregroundColor(isSessionActive ? NexusTheme.teal : NexusTheme.labelText)
         }
     }
 
-    // MARK: - Helpers
+    private var isSessionActive: Bool {
+        viewModel.sessionState == .active
+    }
 
-    private var buttonLabel: String {
+    private var micStatusText: String {
         switch viewModel.sessionState {
-        case .idle, .stopped: return "Start Conversation"
-        case .connecting:     return "Connecting..."
-        case .active:         return "Stop"
+        case .idle, .stopped:
+            return "TAP TO START"
+        case .connecting:
+            return "CONNECTING"
+        case .active:
+            return viewModel.isMuted ? "MUTED" : "LISTENING"
         }
     }
 
-    private var buttonColor: Color {
+    private func handleMicTap() {
         switch viewModel.sessionState {
-        case .idle, .stopped: return .blue
-        case .connecting:     return .gray
-        case .active:         return .red
+        case .idle, .stopped:
+            viewModel.reset()
+            viewModel.tapStart()
+        case .active, .connecting:
+            viewModel.tapStop()
+        }
+    }
+
+    // MARK: - History Button
+
+    private var historyButton: some View {
+        Button(action: { /* No backend support yet */ }) {
+            ZStack {
+                Circle()
+                    .fill(NexusTheme.sideButtonBg)
+                    .frame(width: 44, height: 44)
+                    .overlay(Circle().stroke(NexusTheme.sideButtonBorder, lineWidth: 1))
+
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(Color(hex: 0x666666))
+            }
         }
     }
 
     /// Known agent names in display order.
     private var agentNames: [String] {
-        ["ellen", "shijing", "eva", "ming"]
+        ["shijing", "eva", "ming", "ellen"]
     }
 
-    /// Map agent name to speaker_id.
-    private func speakerIdForAgent(_ name: String) -> UInt8 {
-        switch name {
-        case "ellen":   return SpeakerId.ellen.rawValue
-        case "shijing": return SpeakerId.shijing.rawValue
-        case "eva":     return SpeakerId.eva.rawValue
-        case "ming":    return SpeakerId.ming.rawValue
-        default:        return 0xFF
-        }
-    }
 }
 
-// MARK: - Transcript Line View
+// MARK: - Message Row
 
-struct TranscriptLineView: View {
+struct MessageRowView: View {
     let line: TranscriptLine
+    let isMuted: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(line.speaker.capitalized + ":")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundColor(speakerColor)
-                .frame(width: 80, alignment: .trailing)
+        HStack(alignment: .top, spacing: 10) {
+            Text(NexusTheme.speakerLabel(for: line.speaker))
+                .font(.system(size: 10, weight: .semibold))
+                .tracking(0.6)
+                .foregroundColor(NexusTheme.speakerColor(for: line.speaker))
+                .frame(width: 52, alignment: .leading)
+                .padding(.top, 3)
 
-            Text(line.text)
-                .font(.body)
-                .foregroundColor(line.isFinal ? .primary : .secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private var speakerColor: Color {
-        switch line.speaker.lowercased() {
-        case "user":      return .blue
-        case "moderator": return .purple
-        default:          return .orange
-        }
-    }
-}
-
-// MARK: - Mic Waveform View
-
-struct MicWaveformView: View {
-    let amplitude: Float
-
-    /// Number of bars in the waveform visualization.
-    private let barCount = 20
-
-    var body: some View {
-        HStack(spacing: 3) {
-            ForEach(0..<barCount, id: \.self) { index in
-                let normalizedIndex = Float(index) / Float(barCount)
-                let barHeight = max(0.05, amplitude * waveShape(at: normalizedIndex))
-
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.blue.opacity(0.6))
-                    .frame(width: 4, height: CGFloat(barHeight) * 40)
-                    .animation(.easeInOut(duration: 0.1), value: amplitude)
+            if !line.isFinal && line.text.isEmpty {
+                // Typing indicator
+                TypingDotsView()
+            } else {
+                Text(line.text)
+                    .font(.system(size: 13))
+                    .foregroundColor(isMuted ? NexusTheme.mutedText : NexusTheme.messageText)
+                    .lineSpacing(4)
             }
         }
     }
+}
 
-    /// Generate a wave shape factor for the given normalized position.
-    private func waveShape(at position: Float) -> Float {
-        let center = Float(0.5)
-        let distance = abs(position - center)
-        return max(0.2, 1.0 - distance * 2)
+// MARK: - Typing Dots
+
+struct TypingDotsView: View {
+    @State private var animating = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(NexusTheme.mutedText)
+                    .frame(width: 5, height: 5)
+                    .scaleEffect(animating ? 1.2 : 1.0)
+                    .opacity(animating ? 1.0 : 0.25)
+                    .animation(
+                        .easeInOut(duration: 1.3)
+                        .repeatForever(autoreverses: true)
+                        .delay(Double(index) * 0.2),
+                        value: animating
+                    )
+            }
+        }
+        .frame(height: 18)
+        .onAppear { animating = true }
+    }
+}
+
+// MARK: - Pulse Rings
+
+struct PulseRingView: View {
+    @State private var animating = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(NexusTheme.teal.opacity(0.19), lineWidth: 1.5)
+                .frame(width: 68, height: 68)
+                .scaleEffect(animating ? 1.7 : 1.0)
+                .opacity(animating ? 0 : 1)
+
+            Circle()
+                .stroke(NexusTheme.teal.opacity(0.08), lineWidth: 1)
+                .frame(width: 68, height: 68)
+                .scaleEffect(animating ? 2.1 : 1.0)
+                .opacity(animating ? 0 : 0.7)
+        }
+        .animation(
+            .easeOut(duration: 1.6).repeatForever(autoreverses: false),
+            value: animating
+        )
+        .onAppear { animating = true }
+    }
+}
+
+// MARK: - Wave Bars
+
+struct WaveBarsView: View {
+    @State private var animating = false
+
+    private let barCount = 5
+    private let delays: [Double] = [-0.5, -0.3, -0.1, -0.4, -0.2]
+
+    var body: some View {
+        HStack(spacing: 2.5) {
+            ForEach(0..<barCount, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(NexusTheme.teal)
+                    .frame(width: 2.5, height: animating ? 16 : 4)
+                    .animation(
+                        .easeInOut(duration: 0.85)
+                        .repeatForever(autoreverses: true)
+                        .delay(delays[index] + 0.5),
+                        value: animating
+                    )
+            }
+        }
+        .onAppear { animating = true }
     }
 }
 

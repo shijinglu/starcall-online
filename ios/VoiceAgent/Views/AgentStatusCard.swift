@@ -1,116 +1,128 @@
 import SwiftUI
 
-/// Displays per-agent status with animated spinner, elapsed time, and skip button.
+/// Circular agent avatar with colored ring border, initials, and status dot.
 ///
-/// Fix 6: `dispatched` shows spinner same as `thinking` (no grey dot gap).
-/// Fix 10: Skip button appears when the agent is actively playing audio.
-struct AgentStatusCard: View {
-    let agentName: String
+/// Used in the agent strip when agents are active. Matches the NEXUS design:
+/// - Dark circle background with colored ring border
+/// - Two-letter initials in the agent's color
+/// - Status dot: amber (thinking/dispatched), teal (done/speaking)
+/// - Pulsing animation when thinking, scale animation when speaking
+struct AgentAvatarView: View {
+    let definition: AgentDefinition
     let status: AgentStatusKind
-    let elapsedMs: Int?
-    let isCurrentlySpeaking: Bool
-    var onSkip: () -> Void
+    let isSpeaking: Bool
+
+    private let avatarSize: CGFloat = 52
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                statusIcon
-                    .frame(width: 20, height: 20)
+        VStack(spacing: 7) {
+            ZStack(alignment: .bottomTrailing) {
+                // Ring + initials
+                Text(definition.initials)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(definition.ringColor)
+                    .frame(width: avatarSize, height: avatarSize)
+                    .background(Color(hex: 0x111118))
+                    .clipShape(Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(definition.ringColor, lineWidth: 2)
+                    )
+                    .opacity(status.showsSpinner ? thinkingOpacity : 1.0)
+                    .scaleEffect(isSpeaking ? speakingScale : 1.0)
+                    .animation(
+                        status.showsSpinner
+                            ? .easeInOut(duration: 1.8).repeatForever(autoreverses: true)
+                            : .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
+                        value: status.showsSpinner || isSpeaking
+                    )
 
-                Text(agentName.capitalized)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                // Status dot
+                statusDot
+                    .offset(x: 1, y: 1)
             }
 
-            Text(statusLabel)
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            if isCurrentlySpeaking {
-                Button("Skip") {
-                    onSkip()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .tint(.orange)
-            }
+            Text(definition.name)
+                .font(.system(size: 11))
+                .foregroundColor(NexusTheme.agentLabel)
         }
-        .padding(10)
-        .background(cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(borderColor, lineWidth: 1)
-        )
     }
-
-    // MARK: - Status Icon
 
     @ViewBuilder
-    private var statusIcon: some View {
+    private var statusDot: some View {
+        Circle()
+            .fill(statusDotColor)
+            .frame(width: 10, height: 10)
+            .overlay(
+                Circle()
+                    .stroke(NexusTheme.background, lineWidth: 2)
+            )
+            .opacity(isSpeaking ? speakingDotOpacity : 1.0)
+            .animation(
+                isSpeaking
+                    ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
+                    : .default,
+                value: isSpeaking
+            )
+    }
+
+    private var statusDotColor: Color {
         switch status {
         case .dispatched, .thinking:
-            // Fix 6: Both dispatched and thinking show the same spinner.
-            ProgressView()
-                .scaleEffect(0.8)
-                .tint(.orange)
+            return NexusTheme.amber
         case .done:
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.green)
+            return NexusTheme.teal
         case .timeout:
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(.orange)
+            return NexusTheme.amber
         case .cancelled:
-            Image(systemName: "xmark.circle.fill")
-                .foregroundColor(.gray)
+            return NexusTheme.mutedText
         }
     }
 
-    // MARK: - Labels
+    // Animation state values — SwiftUI animates between these
+    @State private var thinkingOpacity: Double = 0.5
+    @State private var speakingScale: CGFloat = 1.08
+    @State private var speakingDotOpacity: Double = 0.2
+}
 
-    private var statusLabel: String {
-        switch status {
-        case .dispatched:
-            return "dispatched"
-        case .thinking:
-            if let elapsed = elapsedMs {
-                let seconds = elapsed / 1000
-                return "thinking (\(seconds)s)"
+// MARK: - Agent Strip
+
+/// Horizontal strip of active agent avatars, shown below the header divider.
+struct AgentStripView: View {
+    let agents: [(definition: AgentDefinition, status: AgentStatusKind)]
+    let currentlyPlayingSpeaker: UInt8?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("ACTIVE AGENTS")
+                .font(.system(size: 10))
+                .tracking(1.2)
+                .foregroundColor(NexusTheme.labelText)
+
+            HStack(spacing: 20) {
+                ForEach(agents, id: \.definition.key) { agent in
+                    let speakerId = speakerIdForAgent(agent.definition.key)
+                    let isSpeaking = currentlyPlayingSpeaker == speakerId
+
+                    AgentAvatarView(
+                        definition: agent.definition,
+                        status: agent.status,
+                        isSpeaking: isSpeaking
+                    )
+                }
             }
-            return "thinking"
-        case .done:
-            return "done"
-        case .timeout:
-            return "timed out"
-        case .cancelled:
-            return "cancelled"
         }
+        .padding(.horizontal, 26)
+        .padding(.top, 14)
     }
 
-    // MARK: - Styling
-
-    private var cardBackground: Color {
-        switch status {
-        case .dispatched, .thinking:
-            return Color.orange.opacity(0.08)
-        case .done:
-            return Color.green.opacity(0.08)
-        case .timeout:
-            return Color.orange.opacity(0.08)
-        case .cancelled:
-            return Color.gray.opacity(0.08)
-        }
-    }
-
-    private var borderColor: Color {
-        if isCurrentlySpeaking {
-            return .blue
-        }
-        switch status {
-        case .dispatched, .thinking: return .orange.opacity(0.3)
-        case .done:                  return .green.opacity(0.3)
-        case .timeout:               return .orange.opacity(0.3)
-        case .cancelled:             return .gray.opacity(0.3)
+    private func speakerIdForAgent(_ name: String) -> UInt8 {
+        switch name {
+        case "ellen":   return SpeakerId.ellen.rawValue
+        case "shijing": return SpeakerId.shijing.rawValue
+        case "eva":     return SpeakerId.eva.rawValue
+        case "ming":    return SpeakerId.ming.rawValue
+        default:        return 0xFF
         }
     }
 }
@@ -118,28 +130,16 @@ struct AgentStatusCard: View {
 // MARK: - Preview
 
 #Preview {
-    HStack {
-        AgentStatusCard(
-            agentName: "ellen",
-            status: .thinking,
-            elapsedMs: 12000,
-            isCurrentlySpeaking: false,
-            onSkip: {}
-        )
-        AgentStatusCard(
-            agentName: "eva",
-            status: .done,
-            elapsedMs: nil,
-            isCurrentlySpeaking: true,
-            onSkip: {}
-        )
-        AgentStatusCard(
-            agentName: "ming",
-            status: .dispatched,
-            elapsedMs: nil,
-            isCurrentlySpeaking: false,
-            onSkip: {}
+    ZStack {
+        NexusTheme.background.ignoresSafeArea()
+
+        AgentStripView(
+            agents: [
+                (AgentDefinition.all[0], .thinking),
+                (AgentDefinition.all[1], .done),
+                (AgentDefinition.all[2], .thinking),
+            ],
+            currentlyPlayingSpeaker: nil
         )
     }
-    .padding()
 }

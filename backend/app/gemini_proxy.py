@@ -103,10 +103,17 @@ class GeminiLiveProxy:
         self._tasks: dict[
             str, list[asyncio.Task]
         ] = {}  # session_id -> [send_task, recv_task]
+        # Per-session Gemini client + config (needed for reconnection)
+        self._gemini_clients: dict[str, Any] = {}
+        self._gemini_configs: dict[str, Any] = {}
+        self._session_resumption_handles: dict[str, str] = {}
+        self._reconnect_count: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Session lifecycle
     # ------------------------------------------------------------------
+
+    _MAX_RECONNECT_ATTEMPTS = 3
 
     async def start_session(self, conv_session: "ConversationSession") -> None:
         """Open a Gemini Live session and start send/receive loops."""
@@ -132,7 +139,17 @@ class GeminiLiveProxy:
                 )
             ],
             response_modalities=["AUDIO"],
+            context_window_compression=types.ContextWindowCompressionConfig(
+                trigger_tokens=80000,
+                sliding_window=types.SlidingWindow(target_tokens=40000),
+            ),
+            session_resumption=types.SessionResumptionConfig(),
         )
+
+        sid = conv_session.session_id
+        self._gemini_clients[sid] = client
+        self._gemini_configs[sid] = config
+        self._reconnect_count[sid] = 0
 
         ctx = client.aio.live.connect(model=GEMINI_MODEL, config=config)
         session = await ctx.__aenter__()
@@ -144,6 +161,82 @@ class GeminiLiveProxy:
         self._tasks[conv_session.session_id] = [send_task, recv_task]
 
         logger.info("Gemini Live session started for %s", conv_session.session_id)
+
+    async def _reconnect_session(
+        self, conv_session: "ConversationSession"
+    ) -> bool:
+        """Attempt to transparently reconnect a Gemini Live session.
+
+        Returns True if reconnection succeeded, False otherwise.
+        """
+        from google.genai import types
+
+        from app.config import GEMINI_MODEL
+
+        sid = conv_session.session_id
+        attempt = self._reconnect_count.get(sid, 0) + 1
+        self._reconnect_count[sid] = attempt
+
+        if attempt > self._MAX_RECONNECT_ATTEMPTS:
+            logger.warning(
+                "[session=%s] Max reconnect attempts (%d) exceeded",
+                sid,
+                self._MAX_RECONNECT_ATTEMPTS,
+            )
+            return False
+
+        client = self._gemini_clients.get(sid)
+        config = self._gemini_configs.get(sid)
+        if not client or not config:
+            logger.warning("[session=%s] No stored client/config for reconnect", sid)
+            return False
+
+        # Use session resumption handle if available
+        handle = self._session_resumption_handles.get(sid)
+        if handle:
+            config = config.model_copy(
+                update={
+                    "session_resumption": types.SessionResumptionConfig(
+                        handle=handle
+                    )
+                }
+            )
+            logger.info(
+                "[session=%s] Reconnecting with resumption handle (attempt %d/%d)",
+                sid,
+                attempt,
+                self._MAX_RECONNECT_ATTEMPTS,
+            )
+        else:
+            logger.info(
+                "[session=%s] Reconnecting without handle (attempt %d/%d)",
+                sid,
+                attempt,
+                self._MAX_RECONNECT_ATTEMPTS,
+            )
+
+        try:
+            # Close old session quietly
+            old_ctx = getattr(conv_session, "gemini_ctx", None)
+            if old_ctx:
+                try:
+                    await old_ctx.__aexit__(None, None, None)
+                except Exception:
+                    pass
+            conv_session.gemini_session = None
+            conv_session.gemini_ctx = None
+
+            ctx = client.aio.live.connect(model=GEMINI_MODEL, config=config)
+            session = await ctx.__aenter__()
+            conv_session.gemini_session = session
+            conv_session.gemini_ctx = ctx
+            logger.info("[session=%s] Reconnected successfully", sid)
+            return True
+        except Exception as exc:
+            logger.error(
+                "[session=%s] Reconnection failed: %s", sid, exc, exc_info=True
+            )
+            return False
 
     async def send_audio_chunk(
         self, session: "ConversationSession", pcm: bytes
@@ -203,15 +296,29 @@ class GeminiLiveProxy:
             session.gemini_session = None
             session.gemini_ctx = None
 
+        # Clean up reconnection state
+        sid = session.session_id
+        self._gemini_clients.pop(sid, None)
+        self._gemini_configs.pop(sid, None)
+        self._session_resumption_handles.pop(sid, None)
+        self._reconnect_count.pop(sid, None)
+
     # ------------------------------------------------------------------
     # Audio send loop
     # ------------------------------------------------------------------
 
     async def _audio_send_loop(self, session: "ConversationSession") -> None:
-        """Read PCM from audio_queue and forward to Gemini Live."""
+        """Read PCM from audio_queue and forward to Gemini Live.
+
+        During reconnection the gemini_session may be temporarily None.
+        The loop waits briefly and retries rather than stopping, so audio
+        continues flowing after a successful reconnect.
+        """
         from google.genai import types
 
         chunks_sent = 0
+        none_wait_count = 0
+        _MAX_NONE_WAITS = 50  # ~5 seconds of waiting for reconnection
         try:
             while True:
                 pcm = await session.audio_queue.get()
@@ -222,14 +329,30 @@ class GeminiLiveProxy:
                     )
                     break
                 if session.gemini_session is None:
-                    logger.info(
-                        "[session=%s] Audio send loop: gemini_session is None, stopping",
-                        session.session_id,
+                    # Wait briefly for reconnection
+                    none_wait_count += 1
+                    if none_wait_count > _MAX_NONE_WAITS:
+                        logger.info(
+                            "[session=%s] Audio send loop: gemini_session is None "
+                            "after %d waits, stopping",
+                            session.session_id,
+                            none_wait_count,
+                        )
+                        break
+                    await asyncio.sleep(0.1)
+                    continue  # drop this chunk but keep looping
+                none_wait_count = 0  # reset on successful session
+                try:
+                    await session.gemini_session.send_realtime_input(
+                        audio=types.Blob(data=pcm, mime_type="audio/pcm;rate=16000")
                     )
-                    break
-                await session.gemini_session.send_realtime_input(
-                    audio=types.Blob(data=pcm, mime_type="audio/pcm;rate=16000")
-                )
+                except Exception as send_exc:
+                    logger.warning(
+                        "[session=%s] Audio send error (reconnecting?): %s",
+                        session.session_id,
+                        send_exc,
+                    )
+                    continue
                 chunks_sent += 1
                 if chunks_sent == 1 or chunks_sent % 100 == 0:
                     logger.info(
@@ -258,6 +381,9 @@ class GeminiLiveProxy:
         Uses the low-level _receive() to read individual messages instead of
         the high-level receive() which breaks on turn_complete and requires
         generator recreation -- problematic for multi-turn voice sessions.
+
+        On session death, attempts transparent reconnection using session
+        resumption handles before giving up.
         """
         try:
             while True:
@@ -271,6 +397,17 @@ class GeminiLiveProxy:
                     )
                     break
                 try:
+                    # 0. Capture session resumption handle updates
+                    sru = getattr(response, "session_resumption_update", None)
+                    if sru and getattr(sru, "new_handle", None):
+                        self._session_resumption_handles[
+                            session.session_id
+                        ] = sru.new_handle
+                        logger.debug(
+                            "[session=%s] Updated resumption handle",
+                            session.session_id,
+                        )
+
                     # 1. Audio output -> binary frame to iOS client
                     if response.data:
                         frame_seq = session.next_frame_seq()
@@ -338,13 +475,32 @@ class GeminiLiveProxy:
         except asyncio.CancelledError:
             pass
         except Exception as exc:
-            # Outer: the Gemini session itself died
+            # Outer: the Gemini session itself died -- attempt reconnection
             logger.error(
                 "[session=%s] Gemini session died: %s",
                 session.session_id,
                 exc,
                 exc_info=True,
             )
+            reconnected = await self._reconnect_session(session)
+            if reconnected:
+                # Restart the receive loop in a new task
+                recv_task = asyncio.create_task(
+                    self._response_receive_loop(session)
+                )
+                tasks = self._tasks.get(session.session_id)
+                if tasks and len(tasks) > 1:
+                    tasks[1] = recv_task
+                if self.send_json:
+                    await self.send_json(
+                        session,
+                        {
+                            "type": "status",
+                            "message": "Reconnected to moderator.",
+                        },
+                    )
+                return
+            # Reconnection failed -- notify client and terminate
             if self.send_json:
                 await self.send_json(
                     session,

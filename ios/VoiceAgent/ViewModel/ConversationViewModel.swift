@@ -18,6 +18,7 @@ final class ConversationViewModel: ObservableObject {
     @Published var micAmplitude: Float = 0.0
     @Published var errorMessage: String? = nil
     @Published var currentlyPlayingSpeaker: UInt8? = nil
+    @Published var isMuted: Bool = false
 
     // MARK: - Session
 
@@ -65,6 +66,12 @@ final class ConversationViewModel: ObservableObject {
     /// Called when the user taps Skip on an agent.
     func sendSkipSpeaker() {
         session.sendSkipSpeaker()
+    }
+
+    /// Toggle microphone mute state.
+    func toggleMute() {
+        isMuted.toggle()
+        session.setMuted(isMuted)
     }
 
     // MARK: - Transcript Handling (Fix 11)
@@ -128,7 +135,9 @@ final class ConversationViewModel: ObservableObject {
         micAmplitude = 0.0
         errorMessage = nil
         currentlyPlayingSpeaker = nil
+        isMuted = false
         inProgressTranscriptIndex = nil
+        session.resetToIdle()
     }
 }
 

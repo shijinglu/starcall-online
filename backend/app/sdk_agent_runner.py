@@ -6,9 +6,15 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import (
+    AssistantMessage,
     ClaudeAgentOptions,
     ResultMessage,
     SystemMessage,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
     query,
 )
 
@@ -67,6 +73,9 @@ class SDKAgentRunner:
             agents=entry.subagents if entry.subagents else None,
         )
 
+        agent = agent_session.agent_name
+        logger.info("[%s] starting agent task: %s", agent, task[:200])
+
         full_text = ""
         gen = query(prompt=task, options=options)
         try:
@@ -75,10 +84,61 @@ class SDKAgentRunner:
                     agent_session.sdk_session_id = message.data.get(
                         "session_id"
                     )
+                    logger.info(
+                        "[%s] session initialized: %s",
+                        agent,
+                        agent_session.sdk_session_id,
+                    )
+
+                elif isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, ThinkingBlock):
+                            logger.info(
+                                "[%s] thinking: %s",
+                                agent,
+                                block.thinking[:300],
+                            )
+                        elif isinstance(block, TextBlock):
+                            logger.info(
+                                "[%s] text: %s",
+                                agent,
+                                block.text[:300],
+                            )
+                        elif isinstance(block, ToolUseBlock):
+                            logger.info(
+                                "[%s] tool_call: %s(%s)",
+                                agent,
+                                block.name,
+                                block.input,
+                            )
+
+                elif isinstance(message, UserMessage):
+                    for block in (
+                        message.content
+                        if isinstance(message.content, list)
+                        else []
+                    ):
+                        if isinstance(block, ToolResultBlock):
+                            snippet = str(block.content)[:200]
+                            logger.info(
+                                "[%s] tool_result: %s%s",
+                                agent,
+                                snippet,
+                                " (ERROR)" if block.is_error else "",
+                            )
+
                 elif isinstance(message, ResultMessage):
                     agent_session.sdk_session_id = message.session_id
                     if message.subtype == "success" and message.result:
                         full_text = message.result
+                    logger.info(
+                        "[%s] result: subtype=%s turns=%d cost=$%.4f text=%s",
+                        agent,
+                        message.subtype,
+                        message.num_turns,
+                        message.total_cost_usd or 0,
+                        (full_text[:200] + "...") if len(full_text) > 200 else full_text,
+                    )
         finally:
             # Ensure subprocess cleanup on timeout / cancellation
             await gen.aclose()

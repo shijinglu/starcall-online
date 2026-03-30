@@ -21,7 +21,7 @@ SESSION_TTL_SECONDS: float = float(os.getenv("SESSION_TTL_SECONDS", "7200"))
 AUTH_TOKEN_TTL_SECONDS: float = float(os.getenv("AUTH_TOKEN_TTL_SECONDS", "300"))
 
 # --- Agent task config ---
-AGENT_TASK_TIMEOUT_SECONDS: float = float(os.getenv("AGENT_TASK_TIMEOUT_SECONDS", "30"))
+AGENT_TASK_TIMEOUT_SECONDS: float = float(os.getenv("AGENT_TASK_TIMEOUT_SECONDS", "120"))
 THINKING_HEARTBEAT_INTERVAL_SECONDS: float = float(
     os.getenv("THINKING_HEARTBEAT_INTERVAL_SECONDS", "10")
 )

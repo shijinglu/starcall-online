@@ -57,6 +57,7 @@ final class AudioPlaybackEngine {
         audioEngine.connect(dummy, to: audioEngine.mainMixerNode, format: playbackFormat)
         Log.info("Playback engine: starting AVAudioEngine", tag: "AudioPlaybackEngine")
         try audioEngine.start()
+        audioEngine.mainMixerNode.outputVolume = 1.5
         isStarted = true
         Log.info("Playback engine: AVAudioEngine started", tag: "AudioPlaybackEngine")
     }

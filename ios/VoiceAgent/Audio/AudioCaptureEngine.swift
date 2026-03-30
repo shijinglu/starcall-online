@@ -48,7 +48,7 @@ final class AudioCaptureEngine {
     func configureAudioSession() throws {
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth])
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
         try session.setActive(true)
         #endif
     }

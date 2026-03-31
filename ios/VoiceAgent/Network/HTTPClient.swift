@@ -6,7 +6,7 @@ final class HTTPClient {
     /// Default server URL.
     /// Use the Mac's local IP when running on a real device.
     /// Change this to "http://localhost:8000" for Simulator.
-    static let defaultServerURL = URL(string: "http://192.168.1.156:8000")!
+    static let defaultServerURL = URL(string: "http://10.19.49.115:8000")!
 
     private let urlSession: URLSession
     private let decoder: JSONDecoder

@@ -80,10 +80,6 @@ class SessionManager:
         # Remove token index entry
         self._token_index.pop(session.auth_token, None)
 
-        # Cancel meeting sender task
-        if session.meeting_sender_task and not session.meeting_sender_task.done():
-            session.meeting_sender_task.cancel()
-
         # Cancel all agent tasks
         for agent_session in session.agent_sessions.values():
             if agent_session.claude_task and not agent_session.claude_task.done():

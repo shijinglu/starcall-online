@@ -16,6 +16,7 @@ from app.codec import (
     decode_frame,
     encode_frame,
 )
+from app.output_controller import OutputController
 
 if TYPE_CHECKING:
     from app.agent_task_manager import AgentTaskManager
@@ -53,18 +54,9 @@ def init_ws_handler(
 async def send_audio_response(
     session: "ConversationSession", pcm: bytes, frame_seq: int
 ) -> None:
-    """Send a moderator TTS binary frame to the iOS client."""
-    frame = encode_frame(
-        MsgType.AUDIO_RESPONSE, SpeakerId.MODERATOR, session.gen_id, frame_seq, pcm
-    )
-    if session.ws_connection is not None:
-        try:
-            await session.ws_connection.send_bytes(frame)
-        except Exception:
-            logger.debug("Failed to send audio response (WS closed?)")
-
-
-_AUDIO_CHUNK_SIZE = 3200  # 100ms of 16 kHz 16-bit PCM
+    """Enqueue moderator audio into the OutputController."""
+    if session.output_controller is not None:
+        session.output_controller.enqueue_moderator_audio(pcm, session.gen_id)
 
 
 async def send_agent_audio(
@@ -73,20 +65,9 @@ async def send_agent_audio(
     pcm: bytes,
     frame_seq: int,
 ) -> None:
-    """Send deep-agent TTS audio to the iOS client, chunked to avoid WS overflow."""
-    if session.ws_connection is None:
-        return
-    sid = AGENT_SPEAKER_IDS.get(agent_name, 0)
-    try:
-        for offset in range(0, len(pcm), _AUDIO_CHUNK_SIZE):
-            chunk = pcm[offset : offset + _AUDIO_CHUNK_SIZE]
-            frame = encode_frame(
-                MsgType.AGENT_AUDIO, sid, session.gen_id, frame_seq & 0xFF, chunk
-            )
-            await session.ws_connection.send_bytes(frame)
-            frame_seq += 1
-    except Exception:
-        logger.debug("Failed to send agent audio (WS closed?)")
+    """Enqueue agent audio into the OutputController."""
+    if session.output_controller is not None:
+        session.output_controller.enqueue_agent_audio(agent_name, pcm, session.gen_id)
 
 
 async def send_json_msg(
@@ -123,6 +104,12 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query(...)):
 
     await ws.accept()
     session.ws_connection = ws
+
+    # Initialize the output controller for this session
+    oc = OutputController()
+    session.output_controller = oc
+    oc.start(ws=ws)
+
     logger.info("WS connected for session %s", session.session_id)
 
     # Start Gemini Live session
@@ -154,6 +141,8 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query(...)):
         )
     finally:
         logger.info("WS disconnected for session %s", session.session_id)
+        if session.output_controller:
+            await session.output_controller.stop()
         await _gemini_proxy.close_session(session)
         await _session_manager.terminate_session(session.session_id)
 
@@ -221,6 +210,8 @@ async def _handle_interrupt(msg: dict, session: "ConversationSession") -> None:
         session.gen_id,
     )
     new_gen = _session_manager.increment_gen_id(session.session_id)
+    if session.output_controller:
+        session.output_controller.flush(gen_id=new_gen)
     await _agent_task_manager.handle_interrupt(session, mode)
     await send_json_msg(session, {"type": "interruption", "gen_id": new_gen})
 

@@ -24,9 +24,6 @@ class AgentSession:
     created_at: float = field(default_factory=time.time)
     sdk_session_id: str | None = None
 
-    # Meeting-mode fields (Fix 3 / Fix 7)
-    audio_buffer: list[bytes] = field(default_factory=list)
-    completion_event: asyncio.Event = field(default_factory=asyncio.Event)
     current_frame_seq: int = 0
 
     def next_frame_seq(self) -> int:
@@ -54,9 +51,8 @@ class ConversationSession:
     # Audio queue feeding the Gemini audio send loop
     audio_queue: asyncio.Queue = field(default_factory=asyncio.Queue)  # type: ignore[type-arg]
 
-    # Meeting mode
-    meeting_queue: list[str] = field(default_factory=list)  # agent_session_ids (Fix 7)
-    meeting_sender_task: Optional[asyncio.Task] = None  # type: ignore[type-arg]
+    # Output controller (single-writer audio serialization)
+    output_controller: Any = None  # OutputController, set during WS connect
 
     last_activity: float = field(default_factory=time.time)
     session_ttl: float = 7200.0  # 2 hours

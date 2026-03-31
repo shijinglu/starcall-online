@@ -314,10 +314,12 @@ class GeminiLiveProxy:
                 chunks_sent += 1
                 if chunks_sent == 1 or chunks_sent % 100 == 0:
                     logger.info(
-                        "[session=%s] Audio chunks sent: %d (latest %d bytes)",
+                        "[session=%s] Audio chunks sent: %d (latest %d bytes), "
+                        "queue_size=%d",
                         session.session_id,
                         chunks_sent,
                         len(pcm),
+                        session.audio_queue.qsize(),
                     )
         except asyncio.CancelledError:
             pass
@@ -442,8 +444,10 @@ class GeminiLiveProxy:
         if sc and getattr(sc, "turn_complete", False):
             await self._transcript.flush(session)
             logger.info(
-                "[session=%s] Turn complete, continuing to listen",
+                "[session=%s] Turn complete, continuing to listen "
+                "(audio_queue_size=%d)",
                 session.session_id,
+                session.audio_queue.qsize(),
             )
 
     async def _handle_transcriptions(

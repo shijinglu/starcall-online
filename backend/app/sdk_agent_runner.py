@@ -141,13 +141,24 @@ class SDKAgentRunner:
                     if message.subtype == "success" and message.result:
                         full_text = message.result
                     logger.info(
-                        "[%s] result: subtype=%s turns=%d cost=$%.4f text=%s",
+                        "[%s] result: subtype=%s turns=%d cost=$%.4f "
+                        "result_len=%d text=%s",
                         agent,
                         message.subtype,
                         message.num_turns,
                         message.total_cost_usd or 0,
+                        len(full_text),
                         (full_text[:200] + "...") if len(full_text) > 200 else full_text,
                     )
+                    # DIAG: Log all text blocks accumulated vs ResultMessage.result
+                    if isinstance(message.result, str):
+                        logger.info(
+                            "[%s] DIAG result detail: result_len=%d, "
+                            "result_tail=%.200s",
+                            agent,
+                            len(message.result),
+                            message.result[-200:] if message.result else "(empty)",
+                        )
         finally:
             # Ensure subprocess cleanup on timeout / cancellation
             logger.info(

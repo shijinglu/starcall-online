@@ -64,20 +64,29 @@ async def send_audio_response(
             logger.debug("Failed to send audio response (WS closed?)")
 
 
+_AUDIO_CHUNK_SIZE = 3200  # 100ms of 16 kHz 16-bit PCM
+
+
 async def send_agent_audio(
     session: "ConversationSession",
     agent_name: str,
     pcm: bytes,
     frame_seq: int,
 ) -> None:
-    """Send a deep-agent TTS binary frame to the iOS client."""
+    """Send deep-agent TTS audio to the iOS client, chunked to avoid WS overflow."""
+    if session.ws_connection is None:
+        return
     sid = AGENT_SPEAKER_IDS.get(agent_name, 0)
-    frame = encode_frame(MsgType.AGENT_AUDIO, sid, session.gen_id, frame_seq, pcm)
-    if session.ws_connection is not None:
-        try:
+    try:
+        for offset in range(0, len(pcm), _AUDIO_CHUNK_SIZE):
+            chunk = pcm[offset : offset + _AUDIO_CHUNK_SIZE]
+            frame = encode_frame(
+                MsgType.AGENT_AUDIO, sid, session.gen_id, frame_seq & 0xFF, chunk
+            )
             await session.ws_connection.send_bytes(frame)
-        except Exception:
-            logger.debug("Failed to send agent audio (WS closed?)")
+            frame_seq += 1
+    except Exception:
+        logger.debug("Failed to send agent audio (WS closed?)")
 
 
 async def send_json_msg(

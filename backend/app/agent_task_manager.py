@@ -8,8 +8,12 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from app.codec import AGENT_SPEAKER_IDS, MsgType, encode_frame
+
+# 100ms of 16 kHz 16-bit PCM -- must match ws/handler._AUDIO_CHUNK_SIZE
+_AUDIO_CHUNK_SIZE = 3200
 from app.config import AGENT_TASK_TIMEOUT_SECONDS, THINKING_HEARTBEAT_INTERVAL_SECONDS
 from app.models import AgentSession
+from app.tts_rephraser import rephrase_for_tts
 
 if TYPE_CHECKING:
     from app.models import ConversationSession
@@ -286,18 +290,43 @@ class AgentTaskManager:
                 finally:
                     heartbeat_task.cancel()
 
-            # TTS + delivery outside the timeout window
+            # Rephrase + TTS + delivery outside the timeout window
             if full_text:
-                tts_start = time.time()
-                pcm = await self._tts.synthesize(full_text, agent_session.agent_name)
                 logger.info(
-                    "DIAG _run_agent [%s]: TTS took %.1fs, pcm=%s",
+                    "DIAG _run_agent [%s]: full_text len=%d, preview=%.200s",
+                    agent_session.agent_name,
+                    len(full_text),
+                    full_text,
+                )
+                rephrase_start = time.time()
+                spoken_text = await rephrase_for_tts(full_text)
+                logger.info(
+                    "DIAG _run_agent [%s]: rephrase took %.1fs, "
+                    "before=%d chars, after=%d chars, spoken_preview=%.300s",
+                    agent_session.agent_name,
+                    time.time() - rephrase_start,
+                    len(full_text),
+                    len(spoken_text),
+                    spoken_text,
+                )
+                tts_start = time.time()
+                pcm = await self._tts.synthesize(spoken_text, agent_session.agent_name)
+                logger.info(
+                    "DIAG _run_agent [%s]: TTS took %.1fs, pcm=%s, "
+                    "expected_duration=%.1fs",
                     agent_session.agent_name,
                     time.time() - tts_start,
                     f"{len(pcm)} bytes" if pcm else "None",
+                    len(pcm) / (16000 * 2) if pcm else 0,  # 16kHz 16-bit
                 )
                 if pcm:
                     await self._deliver_or_queue(conv_session, agent_session, pcm)
+                else:
+                    logger.warning(
+                        "DIAG _run_agent [%s]: TTS returned empty PCM, "
+                        "no audio will be delivered",
+                        agent_session.agent_name,
+                    )
 
             agent_session.status = "idle"
             if self.send_json:
@@ -395,6 +424,11 @@ class AgentTaskManager:
         if not conv_session.meeting_queue:
             # No meeting mode -- deliver directly
             frame_seq = agent_session.next_frame_seq()
+            logger.info(
+                "DIAG _deliver_or_queue [%s]: DIRECT delivery, "
+                "pcm=%d bytes, frame_seq=%d",
+                agent_session.agent_name, len(pcm_chunk), frame_seq,
+            )
             if self.send_agent_audio:
                 await self.send_agent_audio(
                     conv_session, agent_session.agent_name, pcm_chunk, frame_seq
@@ -402,12 +436,25 @@ class AgentTaskManager:
         elif conv_session.meeting_queue[0] == agent_session.agent_session_id:
             # Fix 3B: This agent is at the head of the queue -- stream directly
             frame_seq = agent_session.next_frame_seq()
+            logger.info(
+                "DIAG _deliver_or_queue [%s]: HEAD-OF-QUEUE delivery, "
+                "pcm=%d bytes, frame_seq=%d, queue=%s",
+                agent_session.agent_name, len(pcm_chunk), frame_seq,
+                [s for s in conv_session.meeting_queue],
+            )
             if self.send_agent_audio:
                 await self.send_agent_audio(
                     conv_session, agent_session.agent_name, pcm_chunk, frame_seq
                 )
         else:
             # Not at head -- buffer until it's this agent's turn
+            logger.info(
+                "DIAG _deliver_or_queue [%s]: BUFFERED (not head), "
+                "pcm=%d bytes, buffer_count=%d, queue=%s",
+                agent_session.agent_name, len(pcm_chunk),
+                len(agent_session.audio_buffer) + 1,
+                [s for s in conv_session.meeting_queue],
+            )
             agent_session.audio_buffer.append(pcm_chunk)
 
     # ------------------------------------------------------------------
@@ -428,21 +475,43 @@ class AgentTaskManager:
                     continue
 
                 # Fix 3A: Event-driven wait -- no polling sleep
+                logger.info(
+                    "DIAG _meeting_sender [%s]: waiting for completion_event, "
+                    "buffer_count=%d, status=%s",
+                    agent_session.agent_name,
+                    len(agent_session.audio_buffer),
+                    agent_session.status,
+                )
                 await agent_session.completion_event.wait()
+                logger.info(
+                    "DIAG _meeting_sender [%s]: completion_event fired, "
+                    "buffer_count=%d, status=%s, total_pcm=%d bytes",
+                    agent_session.agent_name,
+                    len(agent_session.audio_buffer),
+                    agent_session.status,
+                    sum(len(c) for c in agent_session.audio_buffer),
+                )
 
-                # Drain any remaining buffered audio
+                # Drain any remaining buffered audio in small chunks
                 frame_seq = agent_session.current_frame_seq
-                for pcm_chunk in agent_session.audio_buffer:
-                    frame = encode_frame(
-                        MsgType.AGENT_AUDIO,
-                        AGENT_SPEAKER_IDS.get(agent_session.agent_name, 0),
-                        conv_session.gen_id,
-                        frame_seq,
-                        pcm_chunk,
-                    )
-                    if conv_session.ws_connection:
-                        await conv_session.ws_connection.send(frame)
-                    frame_seq = (frame_seq + 1) & 0xFF
+                sid = AGENT_SPEAKER_IDS.get(agent_session.agent_name, 0)
+                for pcm_blob in agent_session.audio_buffer:
+                    for offset in range(0, len(pcm_blob), _AUDIO_CHUNK_SIZE):
+                        chunk = pcm_blob[offset : offset + _AUDIO_CHUNK_SIZE]
+                        frame = encode_frame(
+                            MsgType.AGENT_AUDIO,
+                            sid,
+                            conv_session.gen_id,
+                            frame_seq & 0xFF,
+                            chunk,
+                        )
+                        if conv_session.ws_connection:
+                            try:
+                                await conv_session.ws_connection.send_bytes(frame)
+                            except Exception:
+                                logger.warning("Meeting mode: WS closed, stopping audio send")
+                                return
+                        frame_seq += 1
                 agent_session.audio_buffer.clear()
 
                 conv_session.meeting_queue.pop(0)

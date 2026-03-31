@@ -205,6 +205,12 @@ async def _handle_control(msg: dict, session: "ConversationSession") -> None:
 async def _handle_interrupt(msg: dict, session: "ConversationSession") -> None:
     """Handle barge-in interrupt from the client."""
     mode = msg.get("mode", "cancel_all")
+    logger.info(
+        "DIAG-ECHO: [session=%s] Client sent interrupt mode=%s old_gen=%d",
+        session.session_id,
+        mode,
+        session.gen_id,
+    )
     new_gen = _session_manager.increment_gen_id(session.session_id)
     await _agent_task_manager.handle_interrupt(session, mode)
     await send_json_msg(session, {"type": "interruption", "gen_id": new_gen})

@@ -29,15 +29,28 @@ final class AudioPlaybackEngine {
     var onSpeakerFinished: SpeakerFinishedCallback?
 
     /// The AVAudioEngine used for playback.
-    private let audioEngine: AVAudioEngine
+    /// When a shared engine is provided (ownsEngine=false), this engine is also
+    /// used by AudioCaptureEngine so that hardware AEC can correlate output/input.
+    let audioEngine: AVAudioEngine
+    /// Whether this instance owns (and should start/stop) the engine.
+    private let ownsEngine: Bool
 
     /// The output format for playback: 16kHz int16 mono.
     private let playbackFormat: AVAudioFormat
 
     // MARK: - Init
 
-    init() {
-        audioEngine = AVAudioEngine()
+    /// - Parameter sharedEngine: If provided, this engine is used for playback
+    ///   and the caller is responsible for starting/stopping it. Pass `nil` to
+    ///   create an internal engine (used by tests and standalone operation).
+    init(sharedEngine: AVAudioEngine? = nil) {
+        if let shared = sharedEngine {
+            self.audioEngine = shared
+            self.ownsEngine = false
+        } else {
+            self.audioEngine = AVAudioEngine()
+            self.ownsEngine = true
+        }
         playbackFormat = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
             sampleRate: 16000,
@@ -55,16 +68,22 @@ final class AudioPlaybackEngine {
         let dummy = AVAudioPlayerNode()
         audioEngine.attach(dummy)
         audioEngine.connect(dummy, to: audioEngine.mainMixerNode, format: playbackFormat)
-        Log.info("Playback engine: starting AVAudioEngine", tag: "AudioPlaybackEngine")
-        try audioEngine.start()
+        if ownsEngine {
+            Log.info("Playback engine: starting own AVAudioEngine", tag: "AudioPlaybackEngine")
+            try audioEngine.start()
+        } else {
+            Log.info("Playback engine: using shared AVAudioEngine (AEC-enabled)", tag: "AudioPlaybackEngine")
+        }
         audioEngine.mainMixerNode.outputVolume = 1.5
         isStarted = true
-        Log.info("Playback engine: AVAudioEngine started", tag: "AudioPlaybackEngine")
+        Log.info("Playback engine: ready", tag: "AudioPlaybackEngine")
     }
 
     /// Stop the audio engine.
     func stop() {
-        audioEngine.stop()
+        if ownsEngine {
+            audioEngine.stop()
+        }
     }
 
     // MARK: - Player Node Management

@@ -19,6 +19,19 @@ final class AudioCaptureEngine {
 
     weak var delegate: AudioCaptureEngineDelegate?
 
+    /// - Parameter sharedEngine: If provided, this engine is used for capture
+    ///   and the caller is responsible for starting/stopping it. Pass `nil` to
+    ///   create an internal engine (used by tests and standalone operation).
+    init(sharedEngine: AVAudioEngine? = nil) {
+        if let shared = sharedEngine {
+            self.audioEngine = shared
+            self.ownsEngine = false
+        } else {
+            self.audioEngine = AVAudioEngine()
+            self.ownsEngine = true
+        }
+    }
+
     /// Whether the system is currently playing back audio (used for barge-in detection and noise floor updates).
     var isPlaying: Bool = false
 
@@ -29,11 +42,35 @@ final class AudioCaptureEngine {
     /// EMA smoothing factor for noise floor updates.
     private let noiseFloorAlpha: Float = 0.1
     /// dB above the noise floor required to trigger a barge-in.
-    private let bargeInThresholdDB: Float = 15.0
+    /// Raised from 15 to 25: AEC residual peaks at ~20 dB, real speech at 28-35 dB.
+    private let bargeInThresholdDB: Float = 25.0
+
+    /// Minimum interval between barge-in triggers (seconds).
+    /// Prevents the ~10/s spam observed when speaker bleed keeps RMS above threshold.
+    private let bargeInCooldown: TimeInterval = 1.0
+    /// Timestamp of the last barge-in event.
+    private var lastBargeInTime: TimeInterval = 0
+
+    // MARK: - Diagnostics
+    /// Total barge-in fire count for this session.
+    private var bargeinFireCount: Int = 0
+    /// Periodic summary counters (reset every summary interval).
+    private var diagPlaybackChunks: Int = 0
+    private var diagPlaybackMaxRMS: Float = 0
+    private var diagPlaybackExceedCount: Int = 0
+    private var diagSilenceChunks: Int = 0
+    private var diagLastSummaryTime: TimeInterval = 0
+    /// Summary interval in seconds.
+    private let diagSummaryInterval: TimeInterval = 10.0
 
     // MARK: - Audio Engine Components
 
-    private let audioEngine = AVAudioEngine()
+    /// The AVAudioEngine used for mic capture.
+    /// When a shared engine is provided (ownsEngine=false), this engine is also
+    /// used by AudioPlaybackEngine so that hardware AEC can correlate output/input.
+    let audioEngine: AVAudioEngine
+    /// Whether this instance owns (and should start/stop) the engine.
+    private let ownsEngine: Bool
     private var converter: AVAudioConverter?
 
     /// Accumulation buffer for building 100ms output chunks from variable-size tap callbacks.
@@ -50,6 +87,23 @@ final class AudioCaptureEngine {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
         try session.setActive(true)
+        logAudioRoute()
+        #endif
+    }
+
+    /// Log current audio route for AEC diagnostics.
+    func logAudioRoute() {
+        #if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+        let route = session.currentRoute
+        let inputs = route.inputs.map { "\($0.portName)(\($0.portType.rawValue))" }.joined(separator: ", ")
+        let outputs = route.outputs.map { "\($0.portName)(\($0.portType.rawValue))" }.joined(separator: ", ")
+        #if targetEnvironment(simulator)
+        let envType = "SIMULATOR"
+        #else
+        let envType = "DEVICE"
+        #endif
+        Log.info("DIAG-ECHO: audioRoute env=\(envType) mode=\(session.mode.rawValue) category=\(session.category.rawValue) inputs=[\(inputs)] outputs=[\(outputs)] sampleRate=\(session.sampleRate) ioBufferDuration=\(session.ioBufferDuration)", tag: "AudioCaptureEngine")
         #endif
     }
 
@@ -84,18 +138,24 @@ final class AudioCaptureEngine {
             self?.processBuffer(buffer, converter: audioConverter, targetFormat: targetFormat)
         }
 
-        do {
-            try audioEngine.start()
-            Log.info("Audio engine started successfully", tag: "AudioCaptureEngine")
-        } catch {
-            Log.error("Failed to start audio engine: \(error)", tag: "AudioCaptureEngine")
+        if ownsEngine {
+            do {
+                try audioEngine.start()
+                Log.info("Audio engine started successfully", tag: "AudioCaptureEngine")
+            } catch {
+                Log.error("Failed to start audio engine: \(error)", tag: "AudioCaptureEngine")
+            }
+        } else {
+            Log.info("Using shared audio engine (AEC-enabled), not starting independently", tag: "AudioCaptureEngine")
         }
     }
 
     /// Stop capturing audio.
     func stopCapture() {
         audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.stop()
+        if ownsEngine {
+            audioEngine.stop()
+        }
         accumulationBuffer.removeAll()
     }
 
@@ -158,21 +218,49 @@ final class AudioCaptureEngine {
         // Update adaptive noise floor during quiet periods (when not playing).
         if !isPlaying {
             noiseFloor = noiseFloorAlpha * rms + (1 - noiseFloorAlpha) * noiseFloor
+            diagSilenceChunks += 1
+        }
+
+        // Track playback-period stats for periodic summary.
+        if isPlaying {
+            diagPlaybackChunks += 1
+            diagPlaybackMaxRMS = max(diagPlaybackMaxRMS, rms)
+            let rmsDB = 20 * log10(rms / max(noiseFloor, 1e-10))
+            if rmsDB > bargeInThresholdDB {
+                diagPlaybackExceedCount += 1
+            }
+        }
+
+        // DIAG-ECHO: Periodic summary every 10s instead of per-chunk spam.
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - diagLastSummaryTime >= diagSummaryInterval {
+            Log.info("DIAG-ECHO: SUMMARY playbackChunks=\(diagPlaybackChunks) silenceChunks=\(diagSilenceChunks) maxRMS_during_playback=\(diagPlaybackMaxRMS) exceedThresholdCount=\(diagPlaybackExceedCount) noiseFloor=\(noiseFloor) bargeinFires=\(bargeinFireCount)", tag: "AudioCaptureEngine")
+            diagPlaybackChunks = 0
+            diagPlaybackMaxRMS = 0
+            diagPlaybackExceedCount = 0
+            diagSilenceChunks = 0
+            diagLastSummaryTime = now
         }
 
         // Barge-in detection: RMS exceeds noise floor by threshold while audio is playing.
         // Dispatch off the audio render thread — calling AVAudioPlayerNode.stop()
         // from within a tap callback deadlocks the audio I/O thread.
+        // Debounce: only fire once per bargeInCooldown to avoid spamming cancel_all.
         if isPlaying {
             let rmsDB = 20 * log10(rms / max(noiseFloor, 1e-10))
-            if rmsDB > bargeInThresholdDB {
+            if rmsDB > bargeInThresholdDB && (now - lastBargeInTime) >= bargeInCooldown {
+                bargeinFireCount += 1
+                Log.info("DIAG-ECHO: BARGEIN_FIRED #\(bargeinFireCount) rms=\(rms) rmsDB=\(rmsDB)", tag: "AudioCaptureEngine")
+                lastBargeInTime = now
                 DispatchQueue.main.async { [weak self] in
                     self?.delegate?.audioCaptureDidDetectBargein()
                 }
             }
         }
 
-        // Always emit the chunk (AEC cleans speaker bleed during playback).
+        // Always emit the chunk — audio is sent to Gemini even during playback.
+        // TODO(echo): This is the likely cause of Gemini hearing its own TTS.
+        // AEC reduces bleed but residual still reaches Gemini's server-side VAD.
         delegate?.audioCaptureDidProduceChunk(pcm16)
     }
 

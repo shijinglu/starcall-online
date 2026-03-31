@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import VoiceAgentLib
 
@@ -263,5 +264,40 @@ final class GenIdTests: XCTestCase {
         engine.maybeStartNextMeetingSpeaker()
 
         XCTAssertNil(engine.currentMeetingSpeaker)
+    }
+
+    // MARK: - Shared AVAudioEngine (AEC)
+
+    func testConversationSessionSharesSingleEngine() {
+        // The core invariant of the AEC fix: capture and playback must use
+        // the exact same AVAudioEngine instance so hardware echo cancellation works.
+        let session = ConversationSession()
+        XCTAssertTrue(
+            session.audioCaptureEngine.audioEngine === session.playbackEngine.audioEngine,
+            "Capture and playback must share the same AVAudioEngine for AEC"
+        )
+    }
+
+    func testPlaybackEngineDefaultCreatesOwnEngine() {
+        // When no shared engine is provided (test path), engine is self-owned.
+        let engine1 = AudioPlaybackEngine()
+        let engine2 = AudioPlaybackEngine()
+        XCTAssertFalse(engine1.audioEngine === engine2.audioEngine)
+    }
+
+    func testPlaybackEngineSharedModeDiscardsStaleFrame() {
+        // Verify gen_id filtering works identically with a shared engine.
+        let shared = AVAudioEngine()
+        let engine = AudioPlaybackEngine(sharedEngine: shared)
+        engine.setCurrentGen(3)
+
+        let staleHeader = AudioFrameHeader(
+            msgType: MsgType.agentAudio.rawValue,
+            speakerId: SpeakerId.ellen.rawValue,
+            genId: 2, frameSeq: 0)
+        let pcm = Data(repeating: 0, count: 3200)
+        engine.receiveAudioFrame(header: staleHeader, pcm: pcm)
+
+        XCTAssertTrue(engine.frameQueues.isEmpty)
     }
 }

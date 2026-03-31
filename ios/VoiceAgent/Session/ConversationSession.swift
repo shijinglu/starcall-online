@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 
 /// Delegate for session events that the ViewModel observes.
@@ -41,6 +42,11 @@ final class ConversationSession: NSObject {
     let audioCaptureEngine: AudioCaptureEngine
     let playbackEngine: AudioPlaybackEngine
 
+    /// Single shared AVAudioEngine for both capture and playback.
+    /// Sharing one engine enables hardware AEC (Acoustic Echo Cancellation)
+    /// so the mic input is cleaned of speaker bleed.
+    private let sharedAudioEngine: AVAudioEngine
+
     /// Base URL for the backend server.
     var baseURL: URL
 
@@ -53,19 +59,30 @@ final class ConversationSession: NSObject {
     /// Error message from the last failure.
     private(set) var errorMessage: String?
 
+    // MARK: - Echo Diagnostics
+    /// Track chunks sent to backend during playback vs silence.
+    private var diagChunksSentDuringPlayback: Int = 0
+    private var diagChunksSentDuringSilence: Int = 0
+
     // MARK: - Init
 
     init(
         httpClient: HTTPClient = HTTPClient(),
         transport: WebSocketTransport = WebSocketTransport(),
-        audioCaptureEngine: AudioCaptureEngine = AudioCaptureEngine(),
-        playbackEngine: AudioPlaybackEngine = AudioPlaybackEngine(),
+        audioCaptureEngine: AudioCaptureEngine? = nil,
+        playbackEngine: AudioPlaybackEngine? = nil,
         baseURL: URL = HTTPClient.defaultServerURL
     ) {
         self.httpClient = httpClient
         self.transport = transport
-        self.audioCaptureEngine = audioCaptureEngine
-        self.playbackEngine = playbackEngine
+
+        // Create a single shared AVAudioEngine for both capture and playback.
+        // This allows hardware AEC to correlate speaker output with mic input.
+        let shared = AVAudioEngine()
+        self.sharedAudioEngine = shared
+        self.audioCaptureEngine = audioCaptureEngine ?? AudioCaptureEngine(sharedEngine: shared)
+        self.playbackEngine = playbackEngine ?? AudioPlaybackEngine(sharedEngine: shared)
+
         self.baseURL = baseURL
         super.init()
 
@@ -101,24 +118,32 @@ final class ConversationSession: NSObject {
             Log.info("Connecting WebSocket: \(wsURL)", tag: "ConversationSession")
             transport.connect(token: authToken, serverURL: wsURL)
 
-            // 3. Start audio capture.
+            // 3. Configure audio session and start shared engine.
             do {
                 try audioCaptureEngine.configureAudioSession()
-                Log.info("Audio session configured", tag: "ConversationSession")
+                Log.info("Audio session configured (.voiceChat AEC)", tag: "ConversationSession")
             } catch {
                 Log.error("configureAudioSession failed: \(error)", tag: "ConversationSession")
                 throw error
             }
-            audioCaptureEngine.startCapture()
-            Log.info("Audio capture started", tag: "ConversationSession")
 
-            // 4. Start playback engine.
+            // Start the shared AVAudioEngine once — both capture and playback
+            // use this single engine so hardware AEC can cancel speaker bleed.
             do {
-                try playbackEngine.start()
-                Log.info("Playback engine started", tag: "ConversationSession")
+                try playbackEngine.start()  // attaches player nodes to shared engine
+                audioCaptureEngine.startCapture()  // installs input tap on shared engine
+                try sharedAudioEngine.start()
+                Log.info("Shared AVAudioEngine started (capture + playback on single engine for AEC)", tag: "ConversationSession")
             } catch {
-                Log.error("Playback engine start failed: \(error)", tag: "ConversationSession")
+                Log.error("Shared audio engine start failed: \(error)", tag: "ConversationSession")
                 throw error
+            }
+
+            // When a speaker finishes playing, update isPlaying so the audio
+            // gate re-opens and mic audio flows to Gemini again.
+            playbackEngine.onSpeakerFinished = { [weak self] _ in
+                guard let self = self else { return }
+                self.audioCaptureEngine.isPlaying = self.playbackEngine.isAnyPlaying
             }
 
             state = .active
@@ -138,7 +163,7 @@ final class ConversationSession: NSObject {
         Log.info("DIAG: stop() called, current state=\(state) thread=\(Thread.current)", tag: "ConversationSession")
         state = .stopped
 
-        // Stop audio capture.
+        // Stop audio capture (removes input tap).
         audioCaptureEngine.stopCapture()
 
         // Send stop control message.
@@ -147,9 +172,13 @@ final class ConversationSession: NSObject {
         // Close WebSocket.
         transport.disconnect()
 
-        // Stop playback.
+        // Stop playback (clears queues and player nodes).
         playbackEngine.flushAllAndStop(newGen: currentGen)
         playbackEngine.stop()
+
+        // Stop the shared audio engine last.
+        sharedAudioEngine.stop()
+        Log.info("Shared AVAudioEngine stopped", tag: "ConversationSession")
 
         // Delete session on the backend.
         if let sid = sessionId {
@@ -173,8 +202,9 @@ final class ConversationSession: NSObject {
         currentGen = currentGen &+ 1
         Log.info("DIAG: handleBargein firing, newGen=\(currentGen) thread=\(Thread.current)", tag: "ConversationSession")
         playbackEngine.flushAllAndStop(newGen: currentGen)
+        audioCaptureEngine.isPlaying = false
         transport.sendJSON(["type": "interrupt", "mode": "cancel_all"])
-        Log.info("DIAG: handleBargein complete", tag: "ConversationSession")
+        Log.info("DIAG: handleBargein complete, isPlaying reset to false", tag: "ConversationSession")
     }
 
     /// Handle server-side interruption confirmation.
@@ -191,6 +221,7 @@ final class ConversationSession: NSObject {
         handleInterruptionConfirmed(serverGenId: genId)
         // Flush playback with server's gen_id to discard stale audio.
         playbackEngine.flushAllAndStop(newGen: currentGen)
+        audioCaptureEngine.isPlaying = false
     }
 
     // MARK: - Mute
@@ -358,8 +389,7 @@ extension ConversationSession: WebSocketTransportDelegate {
 extension ConversationSession: AudioCaptureEngineDelegate {
 
     func audioCaptureDidDetectBargein() {
-        Log.info("DIAG: audioCaptureDidDetectBargein fired", tag: "ConversationSession")
-        // Trigger 1: Local RMS detection during playback.
+        Log.info("DIAG-ECHO: LOCAL_BARGEIN fired gen=\(currentGen)", tag: "ConversationSession")
         handleBargein()
     }
 
@@ -372,6 +402,28 @@ extension ConversationSession: AudioCaptureEngineDelegate {
             return
         }
 
+        let isCurrentlyPlaying = audioCaptureEngine.isPlaying
+
+        // Gate: Do NOT send audio to Gemini while TTS is playing.
+        // Even with hardware AEC, residual echo (20-40% of chunks at 15-20 dB)
+        // reaches Gemini's server-side VAD which transcribes it as user speech.
+        // Barge-in still works: local RMS detector fires → handleBargein() →
+        // flushes playback → isPlaying becomes false → audio flows again.
+        if isCurrentlyPlaying {
+            diagChunksSentDuringPlayback += 1
+            // Still update UI amplitude but don't send to backend.
+            let samples = data.withUnsafeBytes { rawBuffer -> [Int16] in
+                guard let base = rawBuffer.baseAddress else { return [] }
+                let bound = base.bindMemory(to: Int16.self, capacity: rawBuffer.count / MemoryLayout<Int16>.size)
+                return Array(UnsafeBufferPointer(start: bound, count: rawBuffer.count / MemoryLayout<Int16>.size))
+            }
+            let rms = audioCaptureEngine.computeRMS(samples)
+            delegate?.sessionDidUpdateMicAmplitude(rms)
+            return
+        }
+
+        diagChunksSentDuringSilence += 1
+
         // Send the 100ms PCM chunk as a binary WS frame.
         transport.sendAudioChunk(data, frameSeq: frameSeq)
         frameSeq = frameSeq &+ 1
@@ -383,8 +435,8 @@ extension ConversationSession: AudioCaptureEngineDelegate {
             return Array(UnsafeBufferPointer(start: bound, count: rawBuffer.count / MemoryLayout<Int16>.size))
         }
         let rms = audioCaptureEngine.computeRMS(samples)
-        if frameSeq == 1 || frameSeq % 50 == 0 {
-            Log.info("DIAG: Audio chunk #\(frameSeq): \(data.count) bytes, rms=\(rms) state=\(state) isPlaying=\(audioCaptureEngine.isPlaying) gen=\(currentGen)", tag: "ConversationSession")
+        if frameSeq == 1 || frameSeq % 100 == 0 {
+            Log.info("DIAG-ECHO: SENT_TO_GEMINI chunk#\(frameSeq) rms=\(rms) totalSkippedDuringPlayback=\(diagChunksSentDuringPlayback) totalSent=\(diagChunksSentDuringSilence)", tag: "ConversationSession")
         }
         delegate?.sessionDidUpdateMicAmplitude(rms)
     }

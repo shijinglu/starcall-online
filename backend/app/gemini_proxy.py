@@ -468,6 +468,11 @@ class GeminiLiveProxy:
                             self._user_transcript_buf[sid] = (
                                 self._user_transcript_buf.get(sid, "") + inp.text
                             )
+                            logger.info(
+                                "DIAG-ECHO: [session=%s] Gemini heard user speech: %r",
+                                sid,
+                                self._user_transcript_buf[sid][-200:],
+                            )
                             if self.send_json:
                                 await self.send_json(
                                     session,
@@ -516,6 +521,14 @@ class GeminiLiveProxy:
                     if response.server_content and getattr(
                         response.server_content, "interrupted", False
                     ):
+                        logger.info(
+                            "DIAG-ECHO: [session=%s] Gemini-side interruption "
+                            "(VAD thinks user spoke — likely echo). "
+                            "user_buf=%r mod_buf=%r",
+                            sid,
+                            self._user_transcript_buf.get(sid, "")[-200:],
+                            self._moderator_transcript_buf.get(sid, "")[-200:],
+                        )
                         await self._flush_transcript_bufs(session)
                         if self.send_json:
                             await self.send_json(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import (
@@ -75,11 +76,27 @@ class SDKAgentRunner:
 
         agent = agent_session.agent_name
         logger.info("[%s] starting agent task: %s", agent, task[:200])
+        logger.info(
+            "[%s] DIAG: cwd=%s, resume=%s, mcp_server_key=%s",
+            agent, options.cwd, options.resume, server_key,
+        )
 
         full_text = ""
+        t0 = time.monotonic()
         gen = query(prompt=task, options=options)
+        logger.info(
+            "[%s] DIAG: query() returned generator in %.3fs",
+            agent, time.monotonic() - t0,
+        )
         try:
+            first_message = True
             async for message in gen:
+                if first_message:
+                    logger.info(
+                        "[%s] DIAG: first message received in %.3fs, type=%s",
+                        agent, time.monotonic() - t0, type(message).__name__,
+                    )
+                    first_message = False
                 if isinstance(message, SystemMessage) and message.subtype == "init":
                     agent_session.sdk_session_id = message.data.get(
                         "session_id"
@@ -141,7 +158,12 @@ class SDKAgentRunner:
                     )
         finally:
             # Ensure subprocess cleanup on timeout / cancellation
+            logger.info(
+                "[%s] DIAG: exiting generator loop after %.3fs, closing generator",
+                agent, time.monotonic() - t0,
+            )
             await gen.aclose()
+            logger.info("[%s] DIAG: generator closed", agent)
 
         # Whole-message TTS
         if deliver_fn and full_text:

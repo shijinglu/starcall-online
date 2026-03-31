@@ -98,6 +98,16 @@ class AgentTaskManager:
         )
         already_in_meeting_mode = len(conv_session.meeting_queue) > 0
 
+        logger.info(
+            "DIAG dispatch: agent=%s, active_agents=%s, meeting_queue=%s, "
+            "entering_meeting=%s, already_meeting=%s",
+            agent_name,
+            [s.agent_name for s in active_agents],
+            list(conv_session.meeting_queue),
+            entering_meeting_mode,
+            already_in_meeting_mode,
+        )
+
         if entering_meeting_mode or already_in_meeting_mode:
             if entering_meeting_mode:
                 # Retroactively add already-active agents to the head of the queue
@@ -231,8 +241,13 @@ class AgentTaskManager:
                         },
                     )
             except asyncio.TimeoutError:
+                logger.warning(
+                    "DIAG _run_agent: agent=%s TIMED OUT after %ss",
+                    agent_session.agent_name, AGENT_TASK_TIMEOUT_SECONDS,
+                )
                 await self._handle_timeout(conv_session, agent_session)
             except asyncio.CancelledError:
+                logger.info("DIAG _run_agent: agent=%s CANCELLED", agent_session.agent_name)
                 agent_session.status = "cancelled"
             except Exception as exc:
                 logger.error(
@@ -327,6 +342,10 @@ class AgentTaskManager:
         """
         if not conv_session.meeting_queue:
             # No meeting mode -- deliver directly
+            logger.info(
+                "DIAG deliver: agent=%s, mode=direct (no meeting queue)",
+                agent_session.agent_name,
+            )
             frame_seq = agent_session.next_frame_seq()
             if self.send_agent_audio:
                 await self.send_agent_audio(
@@ -334,6 +353,10 @@ class AgentTaskManager:
                 )
         elif conv_session.meeting_queue[0] == agent_session.agent_session_id:
             # Fix 3B: This agent is at the head of the queue -- stream directly
+            logger.info(
+                "DIAG deliver: agent=%s, mode=head-of-queue, queue=%s",
+                agent_session.agent_name, list(conv_session.meeting_queue),
+            )
             frame_seq = agent_session.next_frame_seq()
             if self.send_agent_audio:
                 await self.send_agent_audio(
@@ -341,6 +364,13 @@ class AgentTaskManager:
                 )
         else:
             # Not at head -- buffer until it's this agent's turn
+            logger.info(
+                "DIAG deliver: agent=%s, mode=BUFFERED (not head), "
+                "head=%s, queue=%s",
+                agent_session.agent_name,
+                conv_session.meeting_queue[0],
+                list(conv_session.meeting_queue),
+            )
             agent_session.audio_buffer.append(pcm_chunk)
 
     # ------------------------------------------------------------------
@@ -361,7 +391,23 @@ class AgentTaskManager:
                     continue
 
                 # Fix 3A: Event-driven wait -- no polling sleep
+                logger.info(
+                    "DIAG meeting_sender: waiting on agent=%s (%s), status=%s, queue=%s",
+                    agent_session.agent_name,
+                    agent_session_id,
+                    agent_session.status,
+                    list(conv_session.meeting_queue),
+                )
+                wait_start = __import__("time").monotonic()
                 await agent_session.completion_event.wait()
+                logger.info(
+                    "DIAG meeting_sender: agent=%s unblocked after %.1fs, "
+                    "status=%s, buffered_chunks=%d",
+                    agent_session.agent_name,
+                    __import__("time").monotonic() - wait_start,
+                    agent_session.status,
+                    len(agent_session.audio_buffer),
+                )
 
                 # Drain any remaining buffered audio
                 frame_seq = agent_session.current_frame_seq

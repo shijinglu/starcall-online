@@ -389,6 +389,10 @@ extension ConversationSession: WebSocketTransportDelegate {
 extension ConversationSession: AudioCaptureEngineDelegate {
 
     func audioCaptureDidDetectBargein() {
+        // When muted, ignore barge-in — the user muted their mic,
+        // so any RMS spike is speaker bleed, not intentional speech.
+        // TTS playback should continue uninterrupted.
+        guard !isMuted else { return }
         Log.info("DIAG-ECHO: LOCAL_BARGEIN fired gen=\(currentGen)", tag: "ConversationSession")
         handleBargein()
     }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import (
@@ -44,13 +45,12 @@ class SDKAgentRunner:
         self,
         agent_session: "AgentSession",
         task: str,
-        conv_session: "ConversationSession",
-        deliver_fn: Any = None,
-    ) -> None:
-        """Run an agent task via the Agent SDK and deliver whole-message TTS.
+    ) -> str:
+        """Run an agent task via the Agent SDK.
 
-        *deliver_fn* is an async callable ``(conv_session, agent_session, pcm) -> None``
-        used to deliver or queue audio.  If None, audio is not sent (useful for testing).
+        Returns the agent's result text (empty string on failure).
+        TTS and audio delivery are handled by the caller so they don't
+        count against the agent timeout budget.
         """
         entry = self._registry.get(agent_session.agent_name)
         if entry is None:
@@ -74,12 +74,21 @@ class SDKAgentRunner:
         )
 
         agent = agent_session.agent_name
+        t0 = time.monotonic()
         logger.info("[%s] starting agent task: %s", agent, task[:200])
 
         full_text = ""
         gen = query(prompt=task, options=options)
+        logger.info("[%s] DIAG: query() returned at T+%.1fs", agent, time.monotonic() - t0)
         try:
+            msg_count = 0
             async for message in gen:
+                msg_count += 1
+                if msg_count == 1:
+                    logger.info(
+                        "[%s] DIAG: first message at T+%.1fs type=%s",
+                        agent, time.monotonic() - t0, type(message).__name__,
+                    )
                 if isinstance(message, SystemMessage) and message.subtype == "init":
                     agent_session.sdk_session_id = message.data.get(
                         "session_id"
@@ -141,16 +150,21 @@ class SDKAgentRunner:
                     )
         finally:
             # Ensure subprocess cleanup on timeout / cancellation
+            logger.info(
+                "[%s] DIAG: generator loop exited at T+%.1fs, msgs=%d, closing...",
+                agent, time.monotonic() - t0, msg_count,
+            )
+            close_start = time.monotonic()
             await gen.aclose()
-
-        # Whole-message TTS
-        if deliver_fn and full_text:
-            pcm = await self._tts.synthesize(full_text, agent_session.agent_name)
-            if pcm:
-                await deliver_fn(conv_session, agent_session, pcm)
+            logger.info(
+                "[%s] DIAG: gen.aclose() took %.1fs",
+                agent, time.monotonic() - close_start,
+            )
 
         # Update conversation history for Gemini context
         agent_session.conversation_history.append({"role": "user", "content": task})
         agent_session.conversation_history.append(
             {"role": "assistant", "content": full_text}
         )
+
+        return full_text

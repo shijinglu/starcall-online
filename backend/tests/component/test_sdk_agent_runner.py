@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from claude_agent_sdk import ResultMessage, SystemMessage
@@ -54,42 +54,27 @@ async def test_run_captures_session_id(registry, tts_service):
 
     runner = SDKAgentRunner(registry, tts_service)
     agent_session = AgentSession(agent_name="shijing")
-    conv_session = ConversationSession()
 
     with patch("app.sdk_agent_runner.query") as mock_query:
         mock_query.return_value = fake_query_gen()
-        await runner.run(agent_session, "What is the risk?", conv_session)
+        await runner.run(agent_session, "What is the risk?")
 
     assert agent_session.sdk_session_id == SESSION_ID
 
 
 @pytest.mark.asyncio
 async def test_run_calls_tts_with_full_text(registry, tts_service):
-    """SDKAgentRunner should call TTS with the full response text."""
+    """SDKAgentRunner.run() should return the result text (TTS is caller's job now)."""
     from app.sdk_agent_runner import SDKAgentRunner
 
     runner = SDKAgentRunner(registry, tts_service)
     agent_session = AgentSession(agent_name="shijing")
-    conv_session = ConversationSession()
 
-    delivered = []
-
-    async def mock_deliver(cs, as_, pcm):
-        delivered.append(pcm)
-
-    with (
-        patch("app.sdk_agent_runner.query") as mock_query,
-        patch.object(
-            tts_service, "synthesize", new_callable=AsyncMock, return_value=b"fake-pcm"
-        ),
-    ):
+    with patch("app.sdk_agent_runner.query") as mock_query:
         mock_query.return_value = fake_query_gen()
-        await runner.run(
-            agent_session, "What is the risk?", conv_session, deliver_fn=mock_deliver
-        )
+        result = await runner.run(agent_session, "What is the risk?")
 
-    assert len(delivered) == 1
-    assert delivered[0] == b"fake-pcm"
+    assert result == RESULT_TEXT
 
 
 @pytest.mark.asyncio
@@ -99,11 +84,10 @@ async def test_run_appends_conversation_history(registry, tts_service):
 
     runner = SDKAgentRunner(registry, tts_service)
     agent_session = AgentSession(agent_name="shijing")
-    conv_session = ConversationSession()
 
     with patch("app.sdk_agent_runner.query") as mock_query:
         mock_query.return_value = fake_query_gen()
-        await runner.run(agent_session, "What is the risk?", conv_session)
+        await runner.run(agent_session, "What is the risk?")
 
     assert len(agent_session.conversation_history) == 2
     assert agent_session.conversation_history[0]["role"] == "user"

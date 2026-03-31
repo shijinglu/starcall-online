@@ -222,53 +222,97 @@ class AgentTaskManager:
         agent_session: AgentSession,
         task: str,
     ) -> None:
-        """Wrapper: runs the deep agent with timeout + heartbeat."""
-        async with self._agent_semaphore:
-            heartbeat_task = asyncio.create_task(
-                self._heartbeat_loop(conv_session, agent_session)
-            )
-            try:
-                await asyncio.wait_for(
-                    self._runner.run(
-                        agent_session,
-                        task,
-                        conv_session,
-                        deliver_fn=self._deliver_or_queue,
-                    ),
-                    timeout=AGENT_TASK_TIMEOUT_SECONDS,
-                )
-                agent_session.status = "idle"
-                if self.send_json:
-                    await self.send_json(
-                        conv_session,
-                        {
-                            "type": "agent_status",
-                            "agent_name": agent_session.agent_name,
-                            "agent_session_id": agent_session.agent_session_id,
-                            "status": "done",
-                            "gen_id": conv_session.gen_id,
-                        },
-                    )
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "Agent %s timed out after %ss",
-                    agent_session.agent_name, AGENT_TASK_TIMEOUT_SECONDS,
-                )
-                await self._handle_timeout(conv_session, agent_session)
-            except asyncio.CancelledError:
-                agent_session.status = "cancelled"
-            except Exception as exc:
-                logger.error(
-                    "Agent %s (%s) crashed: %s",
+        """Wrapper: runs the deep agent with timeout + heartbeat.
+
+        The timeout covers only the SDK agent work.  TTS synthesis and
+        audio delivery happen *after* the timeout window so a slow
+        subprocess cold-start doesn't eat into TTS time.
+        """
+        full_text = ""
+        t0 = time.time()
+        try:
+            sem_wait_start = time.time()
+            async with self._agent_semaphore:
+                logger.info(
+                    "DIAG _run_agent [%s]: semaphore acquired in %.3fs, "
+                    "timeout=%ss",
                     agent_session.agent_name,
-                    agent_session.agent_session_id,
-                    exc,
-                    exc_info=True,
+                    time.time() - sem_wait_start,
+                    AGENT_TASK_TIMEOUT_SECONDS,
                 )
-                agent_session.status = "idle"
-            finally:
-                heartbeat_task.cancel()
-                agent_session.completion_event.set()  # Fix 3A: unblock meeting sender
+                heartbeat_task = asyncio.create_task(
+                    self._heartbeat_loop(conv_session, agent_session)
+                )
+                try:
+                    full_text = await asyncio.wait_for(
+                        self._runner.run(agent_session, task),
+                        timeout=AGENT_TASK_TIMEOUT_SECONDS,
+                    )
+                    logger.info(
+                        "DIAG _run_agent [%s]: SDK completed in %.1fs, "
+                        "result_len=%d",
+                        agent_session.agent_name,
+                        time.time() - t0,
+                        len(full_text),
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "DIAG _run_agent [%s]: TIMED OUT after %.1fs "
+                        "(limit=%ss)",
+                        agent_session.agent_name,
+                        time.time() - t0,
+                        AGENT_TASK_TIMEOUT_SECONDS,
+                    )
+                    await self._handle_timeout(conv_session, agent_session)
+                    return
+                except asyncio.CancelledError:
+                    logger.info(
+                        "DIAG _run_agent [%s]: CANCELLED after %.1fs",
+                        agent_session.agent_name, time.time() - t0,
+                    )
+                    agent_session.status = "cancelled"
+                    return
+                except Exception as exc:
+                    logger.error(
+                        "Agent %s (%s) crashed after %.1fs: %s",
+                        agent_session.agent_name,
+                        agent_session.agent_session_id,
+                        time.time() - t0,
+                        exc,
+                        exc_info=True,
+                    )
+                    agent_session.status = "idle"
+                    return
+                finally:
+                    heartbeat_task.cancel()
+
+            # TTS + delivery outside the timeout window
+            if full_text:
+                tts_start = time.time()
+                pcm = await self._tts.synthesize(full_text, agent_session.agent_name)
+                logger.info(
+                    "DIAG _run_agent [%s]: TTS took %.1fs, pcm=%s",
+                    agent_session.agent_name,
+                    time.time() - tts_start,
+                    f"{len(pcm)} bytes" if pcm else "None",
+                )
+                if pcm:
+                    await self._deliver_or_queue(conv_session, agent_session, pcm)
+
+            agent_session.status = "idle"
+            if self.send_json:
+                await self.send_json(
+                    conv_session,
+                    {
+                        "type": "agent_status",
+                        "agent_name": agent_session.agent_name,
+                        "agent_session_id": agent_session.agent_session_id,
+                        "status": "done",
+                        "gen_id": conv_session.gen_id,
+                    },
+                )
+        finally:
+            agent_session.completion_event.set()  # always unblock meeting sender
 
     # ------------------------------------------------------------------
     # Heartbeat

@@ -6,7 +6,14 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from app.registry import build_agent_roster_block
+# Re-export tool declarations so existing imports keep working
+from app.gemini_tools import (  # noqa: F401
+    DISPATCH_AGENT_TOOL,
+    MODERATOR_PERSONA,
+    RESUME_AGENT_TOOL,
+    build_system_prompt,
+)
+from app.transcript_buffer import TranscriptBuffer
 
 if TYPE_CHECKING:
     from app.agent_task_manager import AgentTaskManager
@@ -16,82 +23,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Gemini tool declarations (injected into the Gemini Live session)
-# ---------------------------------------------------------------------------
-
-DISPATCH_AGENT_TOOL = {
-    "name": "dispatch_agent",
-    "description": "Delegate a task to a named deep-thinking agent. Use for first contact.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "name": {
-                "type": "string",
-                "enum": ["ellen", "shijing", "eva", "ming"],
-                "description": "Agent to dispatch",
-            },
-            "task": {
-                "type": "string",
-                "description": "Full task description for the agent",
-            },
-        },
-        "required": ["name", "task"],
-    },
-}
-
-RESUME_AGENT_TOOL = {
-    "name": "resume_agent",
-    "description": "Continue a prior conversation with an idle agent session.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "agent_session_id": {
-                "type": "string",
-                "description": "UUID returned from a prior dispatch_agent call",
-            },
-            "follow_up": {
-                "type": "string",
-                "description": "Follow-up question or instruction for the agent",
-            },
-        },
-        "required": ["agent_session_id", "follow_up"],
-    },
-}
-
-# ---------------------------------------------------------------------------
-# Moderator system prompt (static portion)
-# ---------------------------------------------------------------------------
-
-MODERATOR_PERSONA = """\
-You are a fast AI moderator for a voice-first assistant system.
-Your role:
-- Answer simple queries directly and quickly.
-- For complex analytical tasks, delegate to the appropriate deep-thinking agent \
-by CALLING the dispatch_agent tool. You MUST use the function-calling API — \
-never say or output the tool name or arguments as text.
-- For follow-up questions to an existing agent session, CALL the resume_agent tool.
-- Acknowledge delegations immediately with a brief, natural phrase \
-("Ellen is on it!", "Let me check with Ming.").
-- Keep your own responses concise — you are a facilitator, not the expert.
-- Never fabricate agent capabilities. Only dispatch agents listed in the roster below.
-
-IMPORTANT: When delegating, invoke the tool silently. \
-Do NOT speak or output function names, argument syntax, or JSON. \
-Just say a short acknowledgement and call the tool.
-
-Audio format: your TTS output and the user's voice are both 16 kHz LINEAR16 PCM.
-"""
-
-
-def build_system_prompt(agent_registry: "AgentRegistry") -> str:
-    """Assemble the full Gemini system prompt (persona + roster)."""
-    roster = build_agent_roster_block(agent_registry.entries)
-    return MODERATOR_PERSONA + "\n" + roster
-
 
 class GeminiLiveProxy:
     """Manages a bidirectional Gemini Live session per conversation."""
+
+    _MAX_RECONNECT_ATTEMPTS = 3
 
     def __init__(
         self,
@@ -115,15 +51,24 @@ class GeminiLiveProxy:
         self._gemini_configs: dict[str, Any] = {}
         self._session_resumption_handles: dict[str, str] = {}
         self._reconnect_count: dict[str, int] = {}
-        # Per-session transcript accumulation buffers
-        self._user_transcript_buf: dict[str, str] = {}
-        self._moderator_transcript_buf: dict[str, str] = {}
+        # Transcript buffering (delegated)
+        self._transcript = TranscriptBuffer(send_json=send_json_fn)
+
+    # Backward-compatible accessors used by tests
+    @property
+    def _user_transcript_buf(self) -> dict[str, str]:
+        return self._transcript._user_transcript_buf
+
+    @property
+    def _moderator_transcript_buf(self) -> dict[str, str]:
+        return self._transcript._moderator_transcript_buf
+
+    async def _flush_transcript_bufs(self, session: "ConversationSession") -> None:
+        await self._transcript.flush(session)
 
     # ------------------------------------------------------------------
     # Session lifecycle
     # ------------------------------------------------------------------
-
-    _MAX_RECONNECT_ATTEMPTS = 3
 
     async def start_session(self, conv_session: "ConversationSession") -> None:
         """Open a Gemini Live session and start send/receive loops."""
@@ -385,37 +330,7 @@ class GeminiLiveProxy:
             )
 
     # ------------------------------------------------------------------
-    # Transcript buffer helpers
-    # ------------------------------------------------------------------
-
-    async def _flush_transcript_bufs(self, session: "ConversationSession") -> None:
-        """Send is_final=True for any buffered transcripts and clear them."""
-        sid = session.session_id
-        user_buf = self._user_transcript_buf.pop(sid, "")
-        mod_buf = self._moderator_transcript_buf.pop(sid, "")
-        if user_buf and self.send_json:
-            await self.send_json(
-                session,
-                {
-                    "type": "transcript",
-                    "speaker": "user",
-                    "text": user_buf,
-                    "is_final": True,
-                },
-            )
-        if mod_buf and self.send_json:
-            await self.send_json(
-                session,
-                {
-                    "type": "transcript",
-                    "speaker": "moderator",
-                    "text": mod_buf,
-                    "is_final": True,
-                },
-            )
-
-    # ------------------------------------------------------------------
-    # Response receive loop (Fix 5: wrapped in try/except)
+    # Response receive loop
     # ------------------------------------------------------------------
 
     async def _response_receive_loop(self, session: "ConversationSession") -> None:
@@ -440,115 +355,7 @@ class GeminiLiveProxy:
                     )
                     break
                 try:
-                    # 0. Capture session resumption handle updates
-                    sru = getattr(response, "session_resumption_update", None)
-                    if sru and getattr(sru, "new_handle", None):
-                        self._session_resumption_handles[
-                            session.session_id
-                        ] = sru.new_handle
-                        logger.debug(
-                            "[session=%s] Updated resumption handle",
-                            session.session_id,
-                        )
-
-                    # 1. Audio output -> binary frame to iOS client
-                    if response.data:
-                        frame_seq = session.next_frame_seq()
-                        if self.send_audio_response:
-                            await self.send_audio_response(
-                                session, response.data, frame_seq
-                            )
-
-                    # 2. Audio transcriptions -> buffer and send partials
-                    sid = session.session_id
-                    sc = response.server_content
-                    if sc:
-                        inp = getattr(sc, "input_transcription", None)
-                        if inp and getattr(inp, "text", None):
-                            self._user_transcript_buf[sid] = (
-                                self._user_transcript_buf.get(sid, "") + inp.text
-                            )
-                            logger.info(
-                                "DIAG-ECHO: [session=%s] Gemini heard user speech: %r",
-                                sid,
-                                self._user_transcript_buf[sid][-200:],
-                            )
-                            if self.send_json:
-                                await self.send_json(
-                                    session,
-                                    {
-                                        "type": "transcript",
-                                        "speaker": "user",
-                                        "text": self._user_transcript_buf[sid],
-                                        "is_final": False,
-                                    },
-                                )
-                        out = getattr(sc, "output_transcription", None)
-                        if out and getattr(out, "text", None):
-                            self._moderator_transcript_buf[sid] = (
-                                self._moderator_transcript_buf.get(sid, "") + out.text
-                            )
-                            if self.send_json:
-                                await self.send_json(
-                                    session,
-                                    {
-                                        "type": "transcript",
-                                        "speaker": "moderator",
-                                        "text": self._moderator_transcript_buf[sid],
-                                        "is_final": False,
-                                    },
-                                )
-
-                    # 2b. Fallback: text-only response (non-audio model turn)
-                    if response.text and not (sc and getattr(sc, "output_transcription", None)):
-                        if self.send_json:
-                            await self.send_json(
-                                session,
-                                {
-                                    "type": "transcript",
-                                    "speaker": "moderator",
-                                    "text": response.text,
-                                    "is_final": True,
-                                },
-                            )
-
-                    # 3. Tool call -> route to Agent Task Manager
-                    if response.tool_call:
-                        for fn_call in response.tool_call.function_calls:
-                            await self._handle_tool_call(session, fn_call)
-
-                    # 4. Gemini-side interruption event — finalize buffers
-                    if response.server_content and getattr(
-                        response.server_content, "interrupted", False
-                    ):
-                        logger.info(
-                            "DIAG-ECHO: [session=%s] Gemini-side interruption "
-                            "(VAD thinks user spoke — likely echo). "
-                            "user_buf=%r mod_buf=%r",
-                            sid,
-                            self._user_transcript_buf.get(sid, "")[-200:],
-                            self._moderator_transcript_buf.get(sid, "")[-200:],
-                        )
-                        await self._flush_transcript_bufs(session)
-                        if self.send_json:
-                            await self.send_json(
-                                session,
-                                {
-                                    "type": "interruption",
-                                    "gen_id": session.gen_id,
-                                },
-                            )
-
-                    # 5. turn_complete — finalize transcript buffers
-                    if response.server_content and getattr(
-                        response.server_content, "turn_complete", False
-                    ):
-                        await self._flush_transcript_bufs(session)
-                        logger.info(
-                            "[session=%s] Turn complete, continuing to listen",
-                            session.session_id,
-                        )
-
+                    await self._route_response(session, response)
                 except Exception as exc:
                     logger.error(
                         "[session=%s] Error routing Gemini response: %s",
@@ -568,42 +375,135 @@ class GeminiLiveProxy:
         except asyncio.CancelledError:
             pass
         except Exception as exc:
-            # Outer: the Gemini session itself died -- attempt reconnection
-            logger.error(
-                "[session=%s] Gemini session died: %s",
-                session.session_id,
-                exc,
-                exc_info=True,
-            )
-            reconnected = await self._reconnect_session(session)
-            if reconnected:
-                # Restart the receive loop in a new task
-                recv_task = asyncio.create_task(
-                    self._response_receive_loop(session)
-                )
-                tasks = self._tasks.get(session.session_id)
-                if tasks and len(tasks) > 1:
-                    tasks[1] = recv_task
-                if self.send_json:
-                    await self.send_json(
-                        session,
-                        {
-                            "type": "status",
-                            "message": "Reconnected to moderator.",
-                        },
-                    )
-                return
-            # Reconnection failed -- notify client and terminate
+            await self._handle_session_death(session, exc)
+
+    async def _route_response(
+        self, session: "ConversationSession", response: Any
+    ) -> None:
+        """Route a single Gemini response to the appropriate handler."""
+        sid = session.session_id
+
+        # 0. Capture session resumption handle updates
+        sru = getattr(response, "session_resumption_update", None)
+        if sru and getattr(sru, "new_handle", None):
+            self._session_resumption_handles[sid] = sru.new_handle
+            logger.debug("[session=%s] Updated resumption handle", sid)
+
+        # 1. Audio output -> binary frame to iOS client
+        if response.data:
+            frame_seq = session.next_frame_seq()
+            if self.send_audio_response:
+                await self.send_audio_response(session, response.data, frame_seq)
+
+        # 2. Transcriptions -> buffer and send partials
+        sc = response.server_content
+        if sc:
+            await self._handle_transcriptions(session, sc)
+
+        # 2b. Fallback: text-only response (non-audio model turn)
+        if response.text and not (sc and getattr(sc, "output_transcription", None)):
             if self.send_json:
                 await self.send_json(
                     session,
                     {
-                        "type": "error",
-                        "code": "INTERNAL",
-                        "message": "Moderator connection lost. Please start a new session.",
+                        "type": "transcript",
+                        "speaker": "moderator",
+                        "text": response.text,
+                        "is_final": True,
                     },
                 )
-            await self._sm.terminate_session(session.session_id)
+
+        # 3. Tool call -> route to Agent Task Manager
+        if response.tool_call:
+            for fn_call in response.tool_call.function_calls:
+                await self._handle_tool_call(session, fn_call)
+
+        # 4. Gemini-side interruption event — finalize buffers
+        if sc and getattr(sc, "interrupted", False):
+            logger.info(
+                "DIAG-ECHO: [session=%s] Gemini-side interruption "
+                "(VAD thinks user spoke — likely echo). "
+                "user_buf=%r mod_buf=%r",
+                sid,
+                self._transcript.get_user(sid)[-200:],
+                self._transcript.get_moderator(sid)[-200:],
+            )
+            await self._transcript.flush(session)
+            if self.send_json:
+                await self.send_json(
+                    session,
+                    {
+                        "type": "interruption",
+                        "gen_id": session.gen_id,
+                    },
+                )
+
+        # 5. turn_complete — finalize transcript buffers
+        if sc and getattr(sc, "turn_complete", False):
+            await self._transcript.flush(session)
+            logger.info(
+                "[session=%s] Turn complete, continuing to listen",
+                session.session_id,
+            )
+
+    async def _handle_transcriptions(
+        self, session: "ConversationSession", sc: Any
+    ) -> None:
+        """Process input/output transcription fragments from server_content."""
+        sid = session.session_id
+
+        inp = getattr(sc, "input_transcription", None)
+        if inp and getattr(inp, "text", None):
+            await self._transcript.accumulate_user(session, inp.text)
+            logger.info(
+                "DIAG-ECHO: [session=%s] Gemini heard user speech: %r",
+                sid,
+                self._transcript.get_user(sid)[-200:],
+            )
+
+        out = getattr(sc, "output_transcription", None)
+        if out and getattr(out, "text", None):
+            await self._transcript.accumulate_moderator(session, out.text)
+
+    async def _handle_session_death(
+        self, session: "ConversationSession", exc: Exception
+    ) -> None:
+        """Handle Gemini session death -- attempt reconnection or terminate."""
+        logger.error(
+            "[session=%s] Gemini session died: %s",
+            session.session_id,
+            exc,
+            exc_info=True,
+        )
+        reconnected = await self._reconnect_session(session)
+        if reconnected:
+            # Restart the receive loop in a new task
+            recv_task = asyncio.create_task(
+                self._response_receive_loop(session)
+            )
+            tasks = self._tasks.get(session.session_id)
+            if tasks and len(tasks) > 1:
+                tasks[1] = recv_task
+            if self.send_json:
+                await self.send_json(
+                    session,
+                    {
+                        "type": "status",
+                        "message": "Reconnected to moderator.",
+                    },
+                )
+            return
+        # Reconnection failed -- notify client and terminate
+        if self.send_json:
+            await self.send_json(
+                session,
+                {
+                    "type": "error",
+                    "code": "INTERNAL",
+                    "message": "Moderator connection lost. Please start a new session.",
+                },
+            )
+        await self._sm.terminate_session(session.session_id)
 
     # ------------------------------------------------------------------
     # Tool call dispatchers

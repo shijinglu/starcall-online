@@ -67,11 +67,18 @@ MODERATOR_PERSONA = """\
 You are a fast AI moderator for a voice-first assistant system.
 Your role:
 - Answer simple queries directly and quickly.
-- For complex analytical tasks, delegate to the appropriate deep-thinking agent using dispatch_agent.
-- For follow-up questions to an existing agent session, use resume_agent.
-- Acknowledge delegations immediately with a brief, natural phrase ("Ellen is on it!", "Let me check with Ming.").
+- For complex analytical tasks, delegate to the appropriate deep-thinking agent \
+by CALLING the dispatch_agent tool. You MUST use the function-calling API — \
+never say or output the tool name or arguments as text.
+- For follow-up questions to an existing agent session, CALL the resume_agent tool.
+- Acknowledge delegations immediately with a brief, natural phrase \
+("Ellen is on it!", "Let me check with Ming.").
 - Keep your own responses concise — you are a facilitator, not the expert.
 - Never fabricate agent capabilities. Only dispatch agents listed in the roster below.
+
+IMPORTANT: When delegating, invoke the tool silently. \
+Do NOT speak or output function names, argument syntax, or JSON. \
+Just say a short acknowledgement and call the tool.
 
 Audio format: your TTS output and the user's voice are both 16 kHz LINEAR16 PCM.
 """
@@ -108,6 +115,9 @@ class GeminiLiveProxy:
         self._gemini_configs: dict[str, Any] = {}
         self._session_resumption_handles: dict[str, str] = {}
         self._reconnect_count: dict[str, int] = {}
+        # Per-session transcript accumulation buffers
+        self._user_transcript_buf: dict[str, str] = {}
+        self._moderator_transcript_buf: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # Session lifecycle
@@ -139,6 +149,9 @@ class GeminiLiveProxy:
                 )
             ],
             response_modalities=["AUDIO"],
+            thinking_config=types.ThinkingConfig(thinking_level="MINIMAL"),
+            input_audio_transcription=types.AudioTranscriptionConfig(),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
             context_window_compression=types.ContextWindowCompressionConfig(
                 trigger_tokens=80000,
                 sliding_window=types.SlidingWindow(target_tokens=40000),
@@ -372,6 +385,36 @@ class GeminiLiveProxy:
             )
 
     # ------------------------------------------------------------------
+    # Transcript buffer helpers
+    # ------------------------------------------------------------------
+
+    async def _flush_transcript_bufs(self, session: "ConversationSession") -> None:
+        """Send is_final=True for any buffered transcripts and clear them."""
+        sid = session.session_id
+        user_buf = self._user_transcript_buf.pop(sid, "")
+        mod_buf = self._moderator_transcript_buf.pop(sid, "")
+        if user_buf and self.send_json:
+            await self.send_json(
+                session,
+                {
+                    "type": "transcript",
+                    "speaker": "user",
+                    "text": user_buf,
+                    "is_final": True,
+                },
+            )
+        if mod_buf and self.send_json:
+            await self.send_json(
+                session,
+                {
+                    "type": "transcript",
+                    "speaker": "moderator",
+                    "text": mod_buf,
+                    "is_final": True,
+                },
+            )
+
+    # ------------------------------------------------------------------
     # Response receive loop (Fix 5: wrapped in try/except)
     # ------------------------------------------------------------------
 
@@ -416,8 +459,43 @@ class GeminiLiveProxy:
                                 session, response.data, frame_seq
                             )
 
-                    # 2. Transcript -> JSON text frame
-                    if response.text:
+                    # 2. Audio transcriptions -> buffer and send partials
+                    sid = session.session_id
+                    sc = response.server_content
+                    if sc:
+                        inp = getattr(sc, "input_transcription", None)
+                        if inp and getattr(inp, "text", None):
+                            self._user_transcript_buf[sid] = (
+                                self._user_transcript_buf.get(sid, "") + inp.text
+                            )
+                            if self.send_json:
+                                await self.send_json(
+                                    session,
+                                    {
+                                        "type": "transcript",
+                                        "speaker": "user",
+                                        "text": self._user_transcript_buf[sid],
+                                        "is_final": False,
+                                    },
+                                )
+                        out = getattr(sc, "output_transcription", None)
+                        if out and getattr(out, "text", None):
+                            self._moderator_transcript_buf[sid] = (
+                                self._moderator_transcript_buf.get(sid, "") + out.text
+                            )
+                            if self.send_json:
+                                await self.send_json(
+                                    session,
+                                    {
+                                        "type": "transcript",
+                                        "speaker": "moderator",
+                                        "text": self._moderator_transcript_buf[sid],
+                                        "is_final": False,
+                                    },
+                                )
+
+                    # 2b. Fallback: text-only response (non-audio model turn)
+                    if response.text and not (sc and getattr(sc, "output_transcription", None)):
                         if self.send_json:
                             await self.send_json(
                                 session,
@@ -434,10 +512,11 @@ class GeminiLiveProxy:
                         for fn_call in response.tool_call.function_calls:
                             await self._handle_tool_call(session, fn_call)
 
-                    # 4. Gemini-side interruption event
+                    # 4. Gemini-side interruption event — finalize buffers
                     if response.server_content and getattr(
                         response.server_content, "interrupted", False
                     ):
+                        await self._flush_transcript_bufs(session)
                         if self.send_json:
                             await self.send_json(
                                 session,
@@ -447,10 +526,11 @@ class GeminiLiveProxy:
                                 },
                             )
 
-                    # 5. turn_complete is informational -- just log and continue
+                    # 5. turn_complete — finalize transcript buffers
                     if response.server_content and getattr(
                         response.server_content, "turn_complete", False
                     ):
+                        await self._flush_transcript_bufs(session)
                         logger.info(
                             "[session=%s] Turn complete, continuing to listen",
                             session.session_id,

@@ -158,25 +158,31 @@ final class WebSocketTransport: NSObject {
 
     // MARK: - Reconnection
 
-    /// Handle a network disconnect with exponential backoff reconnection.
+    /// Handle a network disconnect.
+    ///
+    /// The auth token is single-use and was consumed when the WebSocket first
+    /// connected, so retrying with the same token will always fail (4001).
+    /// Instead, notify the delegate to create a fresh session with a new token.
     func handleDisconnect(error: Error?) {
         guard !intentionalDisconnect else { return }
 
         delegate?.transportDidDisconnect(error: error)
+        scheduleReauthentication()
+    }
+
+    /// Schedule a reauthentication attempt with exponential backoff.
+    ///
+    /// Called on disconnect and when the delegate's reauth attempt fails
+    /// (e.g. backend not yet available after restart).
+    func scheduleReauthentication() {
+        guard !intentionalDisconnect else { return }
 
         let delay = reconnectDelay
         reconnectDelay = min(reconnectDelay * 2, maxReconnectDelay)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.attemptReconnect()
+            guard let self, !self.intentionalDisconnect else { return }
+            self.delegate?.transportRequiresReauthentication()
         }
-    }
-
-    /// Attempt to reconnect using the last known server URL and token.
-    private func attemptReconnect() {
-        guard !intentionalDisconnect,
-              let serverURL = lastServerURL,
-              let token = lastToken else { return }
-        connect(token: token, serverURL: serverURL)
     }
 }

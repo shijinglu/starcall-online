@@ -244,13 +244,13 @@ public struct ContentView: View {
 
                 Spacer()
 
-                // Mic button
+                // Mic button (start session / toggle mute)
                 micButton
 
                 Spacer()
 
-                // History button
-                historyButton
+                // New conversation button (ends current session)
+                newConversationButton
             }
             .padding(.horizontal, 26)
             .padding(.top, 14)
@@ -296,11 +296,16 @@ public struct ContentView: View {
                         )
                         .overlay(
                             Group {
-                                if isSessionActive {
-                                    // Wave bars
+                                if isSessionActive && !viewModel.isMuted {
+                                    // Wave bars (active + unmuted)
                                     WaveBarsView()
+                                } else if isSessionActive && viewModel.isMuted {
+                                    // Muted mic icon
+                                    Image(systemName: "mic.slash.fill")
+                                        .font(.system(size: 20))
+                                        .foregroundColor(NexusTheme.muteRed)
                                 } else {
-                                    // Mic icon
+                                    // Mic icon (idle)
                                     Image(systemName: "mic.fill")
                                         .font(.system(size: 20))
                                         .foregroundColor(NexusTheme.teal)
@@ -329,7 +334,7 @@ public struct ContentView: View {
         case .connecting:
             return "CONNECTING"
         case .active:
-            return viewModel.isMuted ? "MUTED" : "LISTENING"
+            return viewModel.isMuted ? "TAP TO UNMUTE" : "LISTENING"
         }
     }
 
@@ -338,26 +343,37 @@ public struct ContentView: View {
         case .idle, .stopped:
             viewModel.reset()
             viewModel.tapStart()
-        case .active, .connecting:
+        case .active:
+            // Tap toggles mute; long-press or "New Conversation" ends the session.
+            viewModel.toggleMute()
+        case .connecting:
             viewModel.tapStop()
         }
     }
 
-    // MARK: - History Button
+    // MARK: - New Conversation Button
 
-    private var historyButton: some View {
-        Button(action: { /* No backend support yet */ }) {
+    private var newConversationButton: some View {
+        Button(action: {
+            if viewModel.sessionState == .active || viewModel.sessionState == .connecting {
+                viewModel.tapStop()
+            }
+        }) {
             ZStack {
                 Circle()
-                    .fill(NexusTheme.sideButtonBg)
+                    .fill(isSessionActive ? NexusTheme.sideButtonBg : NexusTheme.sideButtonBg)
                     .frame(width: 44, height: 44)
-                    .overlay(Circle().stroke(NexusTheme.sideButtonBorder, lineWidth: 1))
+                    .overlay(Circle().stroke(
+                        isSessionActive ? NexusTheme.muteRed.opacity(0.6) : NexusTheme.sideButtonBorder,
+                        lineWidth: 1
+                    ))
 
-                Image(systemName: "arrow.counterclockwise")
+                Image(systemName: "plus.message")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(Color(hex: 0x666666))
+                    .foregroundColor(isSessionActive ? NexusTheme.muteRed : Color(hex: 0x666666))
             }
         }
+        .disabled(!isSessionActive && viewModel.sessionState != .connecting)
     }
 
     /// Known agent names in display order.

@@ -88,17 +88,29 @@ class AgentTaskManager:
             )
 
         # If meeting mode is active (more than one agent), add to queue
-        if (
-            len(conv_session.meeting_queue) > 0
-            or len(
-                [
-                    s
-                    for s in conv_session.agent_sessions.values()
-                    if s.status == "active"
-                ]
-            )
-            > 1
-        ):
+        active_agents = [
+            s
+            for s in conv_session.agent_sessions.values()
+            if s.status == "active" and s.agent_session_id != agent_session.agent_session_id
+        ]
+        entering_meeting_mode = (
+            len(conv_session.meeting_queue) == 0 and len(active_agents) >= 1
+        )
+        already_in_meeting_mode = len(conv_session.meeting_queue) > 0
+
+        if entering_meeting_mode or already_in_meeting_mode:
+            if entering_meeting_mode:
+                # Retroactively add already-active agents to the head of the queue
+                # so their audio (which may arrive later via TTS) gets properly drained.
+                for active in active_agents:
+                    if active.agent_session_id not in conv_session.meeting_queue:
+                        conv_session.meeting_queue.append(active.agent_session_id)
+                        logger.info(
+                            "Meeting mode: retroactively queued %s (%s)",
+                            active.agent_name,
+                            active.agent_session_id,
+                        )
+
             conv_session.meeting_queue.append(agent_session.agent_session_id)
             # Launch the meeting sender task if not already running
             if (

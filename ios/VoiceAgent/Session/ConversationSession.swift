@@ -329,18 +329,20 @@ extension ConversationSession: WebSocketTransportDelegate {
     }
 
     func transportRequiresReauthentication() {
-        // Fix 2: Token was consumed. Request a completely new session (new session_id + token).
-        // This is NOT a reconnect -- it starts a fresh conversation.
+        // Token was consumed or backend restarted. Create a fresh session.
+        guard state == .active else { return }
         Task {
             do {
                 let (newSessionId, newToken) = try await httpClient.createSession(serverURL: baseURL)
                 self.sessionId = newSessionId
                 let wsURL = buildWebSocketURL()
                 transport.connect(token: newToken, serverURL: wsURL)
+                Log.info("Reauthenticated with new session \(newSessionId)", tag: "ConversationSession")
             } catch {
-                state = .stopped
-                errorMessage = "Session could not be restored: \(error.localizedDescription)"
-                delegate?.sessionDidReceiveError(errorMessage!)
+                // Backend may still be starting up. Schedule another attempt
+                // using the transport's exponential backoff.
+                Log.warning("Reauthentication failed (backend down?): \(error.localizedDescription)", tag: "ConversationSession")
+                transport.scheduleReauthentication()
             }
         }
     }

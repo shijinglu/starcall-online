@@ -35,6 +35,8 @@ Similar to the previous one, one can push the button to start a conversation, bu
 
 The conversation will be something like:
 <<user pushed start button>>
+(user): hello
+(app): hello, how can I help you?
 (user): "help me pull the TODO items from work for today" <<pause>>
 (app): "okie, I have notified your digital assistant Ellen, she will update your shortly!"
 (user): "also, help me review yesterday business metrics and brief me with a summary."

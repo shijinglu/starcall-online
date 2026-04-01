@@ -50,19 +50,49 @@ async def send_task_to_agent(
 
         response = await client.send_message(request)
 
-        # Extract text from the response
+        # Extract text from the response.
+        # The A2A SDK returns different shapes depending on the agent:
+        #   - Message with parts (direct result)
+        #   - Task with artifacts/messages
         result = response.root.result
-        if hasattr(result, "artifacts") and result.artifacts:
+
+        texts: list[str] = []
+
+        # Case 1: result is a Message with parts directly
+        if hasattr(result, "parts") and result.parts:
+            for part in result.parts:
+                # Parts may be a union type with a .root accessor
+                actual = getattr(part, "root", part)
+                if hasattr(actual, "text") and actual.text:
+                    texts.append(actual.text)
+
+        # Case 2: result has artifacts (Task-style response)
+        if not texts and hasattr(result, "artifacts") and result.artifacts:
             for artifact in result.artifacts:
                 for part in artifact.parts:
-                    if hasattr(part, "text"):
-                        return part.text
-        if hasattr(result, "messages") and result.messages:
+                    actual = getattr(part, "root", part)
+                    if hasattr(actual, "text") and actual.text:
+                        texts.append(actual.text)
+
+        # Case 3: result has messages (Task-style response)
+        if not texts and hasattr(result, "messages") and result.messages:
             for msg in reversed(result.messages):
                 if msg.role == "agent":
                     for part in msg.parts:
-                        if hasattr(part, "text"):
-                            return part.text
+                        actual = getattr(part, "root", part)
+                        if hasattr(actual, "text") and actual.text:
+                            texts.append(actual.text)
+                    if texts:
+                        break
 
-        logger.warning("A2A response for %s had no extractable text", agent_name)
+        if texts:
+            return "\n\n".join(texts)
+
+        logger.warning(
+            "A2A response for %s had no extractable text, "
+            "result_type=%s, repr=%.300s",
+            agent_name,
+            type(result).__name__,
+            repr(result)[:300],
+        )
         return "No response from agent."

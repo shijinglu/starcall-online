@@ -142,10 +142,8 @@ Read both files.
 ### 6c. Backend app log (recent tail)
 Read the tail of `backend/logs/app.log` (last 300 lines) for additional context like errors, warnings, or agent dispatch details.
 
-### 6d. Mobile logs (ASK User)
-First stop and ask user if user can provide mobile logs (yes/no)
-If user selects yes, then ask if the mobile logs are saved to ios/logs/app.log
-Once user confirmed, read mobile logs.
+### 6d. Mobile logs
+If mobile-mcp is available, attempt to capture device logs. If not accessible, note this in the report and proceed without them.
 
 ---
 

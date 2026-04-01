@@ -38,6 +38,15 @@ final class AudioPlaybackEngine {
     /// The output format for playback: 16kHz int16 mono.
     private let playbackFormat: AVAudioFormat
 
+    // MARK: - Playback Watchdog
+    // AVAudioPlayerNode.isPlaying stays true after play() even when all buffers
+    // finish, and scheduleBuffer completion handlers may not fire reliably.
+    // This watchdog tracks expected playback end time per speaker and explicitly
+    // stops the node when playback should be done.
+    private var expectedPlaybackEnd: [UInt8: CFAbsoluteTime] = [:]
+    private var playbackWatchdogs: [UInt8: DispatchWorkItem] = [:]
+    private let watchdogMargin: Double = 0.3  // 300ms safety margin
+
     // MARK: - Init
 
     /// - Parameter sharedEngine: If provided, this engine is used for playback
@@ -143,6 +152,43 @@ final class AudioPlaybackEngine {
             // Note: This fires per-buffer. For meeting mode we track separately.
             self?.onSpeakerFinished?(speakerId)
         }
+
+        // Schedule/extend watchdog for this speaker.
+        scheduleWatchdog(speakerId: speakerId, pcmByteCount: pcm.count)
+    }
+
+    /// Compute expected playback end and schedule a watchdog to stop the node.
+    private func scheduleWatchdog(speakerId: UInt8, pcmByteCount: Int) {
+        let bufferDuration = Double(pcmByteCount) / (16000.0 * 2.0)
+        let now = CFAbsoluteTimeGetCurrent()
+        // Extend the end time: either from current expected end or from now.
+        let currentEnd = expectedPlaybackEnd[speakerId] ?? now
+        let newEnd = max(currentEnd, now) + bufferDuration
+        expectedPlaybackEnd[speakerId] = newEnd
+
+        // Cancel previous watchdog and schedule a new one at the new end time.
+        playbackWatchdogs[speakerId]?.cancel()
+        let delay = newEnd - now + watchdogMargin
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.handleWatchdogFired(speakerId: speakerId)
+        }
+        playbackWatchdogs[speakerId] = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    /// Called when the watchdog timer fires — stop the node if still playing.
+    private func handleWatchdogFired(speakerId: UInt8) {
+        let node = playerNodes[speakerId]
+        let wasPlaying = node?.isPlaying ?? false
+        if wasPlaying {
+            node?.stop()
+            Log.info("DIAG-WATCHDOG: speaker=\(speakerId) stopped by watchdog (node.isPlaying was stuck true)", tag: "AudioPlaybackEngine")
+        }
+        expectedPlaybackEnd.removeValue(forKey: speakerId)
+        playbackWatchdogs.removeValue(forKey: speakerId)
+        if wasPlaying {
+            onSpeakerFinished?(speakerId)
+        }
     }
 
     /// Convert raw PCM Data (int16 LE) to an AVAudioPCMBuffer.
@@ -174,6 +220,13 @@ final class AudioPlaybackEngine {
         Log.info("DIAG: flushAllAndStop newGen=\(newGen) oldGen=\(currentGen) playerNodes=\(playerNodes.count) thread=\(Thread.current)", tag: "AudioPlaybackEngine")
         currentGen = newGen
 
+        // Cancel all watchdogs.
+        for (_, workItem) in playbackWatchdogs {
+            workItem.cancel()
+        }
+        playbackWatchdogs.removeAll()
+        expectedPlaybackEnd.removeAll()
+
         // Stop all player nodes and clear all queues.
         for (speakerId, node) in playerNodes {
             Log.info("DIAG: stopping node speaker=\(speakerId) isPlaying=\(node.isPlaying)", tag: "AudioPlaybackEngine")
@@ -191,6 +244,9 @@ final class AudioPlaybackEngine {
 
     /// Cancel a specific speaker's stream and advance the meeting queue.
     func cancelStream(speakerId: UInt8) {
+        playbackWatchdogs[speakerId]?.cancel()
+        playbackWatchdogs.removeValue(forKey: speakerId)
+        expectedPlaybackEnd.removeValue(forKey: speakerId)
         playerNodes[speakerId]?.stop()
         frameQueues[speakerId]?.removeAll()
 

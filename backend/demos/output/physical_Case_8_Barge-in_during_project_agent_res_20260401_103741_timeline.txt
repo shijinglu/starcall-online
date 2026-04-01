@@ -1,0 +1,95 @@
+    0.0s  Demo started
+    0.1s  Mac volume set to 30%
+    0.2s  iPhone detected via USB
+    0.2s  Launching VoiceAgent app on iPhone...
+    0.3s  App launched on iPhone
+    0.3s  Waiting 10s for START tap...
+   10.3s  START tap window elapsed
+   10.3s  Waiting for session init...
+   13.3s  Beep countdown (3 beeps, 2s apart)
+   14.9s  SESSION created: s-3d6fe830-8e12-4658-88ed-63bc8222ed22
+   15.0s  WEBSOCKET connected
+   15.3s  GEMINI session started
+   22.5s  Beep countdown done, starting conversation
+   22.5s  Starting conversation (5 turns)
+   22.5s  SAY [Turn 1/5]: "Hello, there"
+   24.0s  SAY done (1498ms)
+   24.6s  GEMINI heard: "He"
+   24.8s  GEMINI heard: "Hello"
+   25.2s  GEMINI heard: "Hello there"
+   25.2s  GEMINI heard: "Hello there."
+   26.1s  MODERATOR audio enqueued: 46080 bytes (1.4s)
+   30.1s  SAY [Turn 2/5]: "Can you help me check if I have time for a dinner at 6PM?"
+   32.4s  GEMINI heard: "Can"
+   32.6s  GEMINI heard: "Can you"
+   32.7s  GEMINI heard: "Can you help"
+   32.9s  GEMINI heard: "Can you help me"
+   33.0s  GEMINI heard: "Can you help me che"
+   33.2s  GEMINI heard: "Can you help me check"
+   33.3s  GEMINI heard: "Can you help me check if"
+   33.5s  GEMINI heard: "Can you help me check if I"
+   33.8s  GEMINI heard: "Can you help me check if I have"
+   33.9s  GEMINI heard: "Can you help me check if I have time"
+   34.0s  GEMINI heard: "Can you help me check if I have time for"
+   34.0s  SAY done (3860ms)
+   34.2s  GEMINI heard: "Can you help me check if I have time for a di"
+   34.4s  GEMINI heard: "Can you help me check if I have time for a dinner"
+   34.6s  GEMINI heard: "Can you help me check if I have time for a dinner at 6:00 p.m?"
+   35.6s  MODERATOR audio enqueued: 46080 bytes (1.4s)
+   35.7s  AGENT dispatched: ellen — "Check calendar for availability for a dinner at 6 PM today"
+   36.6s  MODERATOR audio enqueued: 46080 bytes (1.4s)
+   42.2s  SAY [Turn 3/5]: "Ellen, walk me through yesterday's transaction anomalies"
+   44.4s  GEMINI heard: "E"
+   44.5s  GEMINI heard: "Ellen"
+   44.7s  GEMINI heard: "Ellen,"
+   44.8s  GEMINI heard: "Ellen, wal"
+   45.0s  GEMINI heard: "Ellen, walk"
+   45.2s  GEMINI heard: "Ellen, walk me"
+   45.3s  GEMINI heard: "Ellen, walk me through"
+   45.5s  GEMINI heard: "Ellen, walk me through ye"
+   45.7s  GEMINI heard: "Ellen, walk me through yesterday"
+   45.9s  SAY done (3717ms)
+   47.4s  MODERATOR audio enqueued: 46080 bytes (1.4s)
+   47.5s  AGENT dispatched: eva — "Walk through yesterday's transaction anomalies"
+   48.5s  MODERATOR audio enqueued: 46080 bytes (1.4s)
+   53.6s  AGENT done: ellen (TTS 1.5s, audio 1.3s)
+   53.6s  AGENT audio enqueued: ellen 42296 bytes (1.3s)
+   60.2s  SAY [Turn 4/5]: "hold on, just the top 3 by dollar amount, skip the details"
+   62.2s  GEMINI heard: "Ho"
+   62.3s  GEMINI heard: "Hold"
+   62.5s  GEMINI heard: "Hold on"
+   62.8s  GEMINI heard: "Hold on,"
+   62.9s  GEMINI heard: "Hold on, just"
+   63.1s  GEMINI heard: "Hold on, just the"
+   63.5s  GEMINI heard: "Hold on, just the top"
+   63.6s  GEMINI heard: "Hold on, just the top th"
+   63.8s  GEMINI heard: "Hold on, just the top three"
+   63.9s  GEMINI heard: "Hold on, just the top three by"
+   64.1s  GEMINI heard: "Hold on, just the top three by do"
+   64.3s  GEMINI heard: "Hold on, just the top three by dollar"
+   64.5s  GEMINI heard: "Hold on, just the top three by dollar amo"
+   64.7s  GEMINI heard: "Hold on, just the top three by dollar amount"
+   64.8s  SAY done (4644ms)
+   65.2s  GEMINI heard: "Hold on, just the top three by dollar amount."
+   65.4s  GEMINI heard: "Hold on, just the top three by dollar amount. Hit"
+   65.5s  GEMINI heard: "Hold on, just the top three by dollar amount. Hit the"
+   65.5s  GEMINI heard: "Hold on, just the top three by dollar amount. Hit the details."
+   67.0s  MODERATOR audio enqueued: 46080 bytes (1.4s)
+   77.0s  SAY [Turn 5/5]: "flag the wire reversal and send me a one-liner on it"
+   79.0s  GEMINI heard: "Flag"
+   79.3s  GEMINI heard: "Flag the"
+   79.5s  GEMINI heard: "Flag the wi"
+   79.7s  GEMINI heard: "Flag the wire"
+   79.8s  GEMINI heard: "Flag the wire re"
+   80.0s  GEMINI heard: "Flag the wire revers"
+   80.1s  GEMINI heard: "Flag the wire reversal"
+   80.3s  GEMINI heard: "Flag the wire reversal and"
+   80.3s  SAY done (3349ms)
+   80.4s  GEMINI heard: "Flag the wire reversal and send"
+   80.6s  GEMINI heard: "Flag the wire reversal and send me a"
+   80.9s  GEMINI heard: "Flag the wire reversal and send me a one"
+   80.9s  GEMINI heard: "Flag the wire reversal and send me a one liner on it."
+   81.9s  MODERATOR audio enqueued: 46080 bytes (1.4s)
+   83.6s  MODERATOR audio enqueued: 46080 bytes (1.4s)
+   92.5s  Conversation done, waiting 15s for trailing responses...
+  107.7s  Demo complete

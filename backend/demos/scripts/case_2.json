@@ -1,0 +1,13 @@
+{
+  "name": "Case 2: Fast and slow responses with deep agent",
+  "description": "User asks for TODO items and metrics. Moderator acknowledges fast, dispatches Ellen for deep work.",
+  "final_wait": 10,
+  "conversation": [
+    {"text": "hello", "wait": 8},
+    {"text": "help me pull the TODO items from work for today", "wait": 12},
+    {"text": "also, help me review yesterday business metrics and brief me with a summary.", "wait": 14},
+    {"text": "skip the morning schedules, help me check if there are arrangements at dinner time", "wait": 18},
+    {"text": "yes, cancel that for me please", "wait": 12},
+    {"text": "review the metrics", "wait": 18}
+  ]
+}

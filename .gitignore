@@ -435,3 +435,6 @@ xcuserdata/
 *.xcuserstate
 
 .DS_Store
+
+# local files, skil check-in
+local/

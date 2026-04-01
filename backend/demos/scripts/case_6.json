@@ -1,0 +1,10 @@
+{
+  "name": "Case 6: Multi-turn follow-up with same agent",
+  "description": "User delegates analysis to Ellen, then asks follow-up questions routed to the same agent session.",
+  "final_wait": 15,
+  "conversation": [
+    {"text": "Ellen, analyze the chargeback spike from last night.", "wait": 15},
+    {"text": "which merchant had the highest volume?", "wait": 12},
+    {"text": "pull the top 5 user IDs behind those chargebacks.", "wait": 12}
+  ]
+}

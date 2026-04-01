@@ -1,0 +1,9 @@
+{
+  "name": "Case 1: Natural conversation with fast response",
+  "description": "User asks about Gemini news, moderator misunderstands, user corrects. No deep agents.",
+  "final_wait": 5,
+  "conversation": [
+    {"text": "tell me something new about gemini", "wait": 10},
+    {"text": "no, no, no, it is not the crypto exchange gemini, I am talking about Google AI product Gemini.", "wait": 12}
+  ]
+}

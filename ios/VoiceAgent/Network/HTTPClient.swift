@@ -3,10 +3,12 @@ import Foundation
 /// HTTP client for REST API calls to the backend.
 final class HTTPClient {
 
-    /// Default server URL.
-    /// Use the Mac's local IP when running on a real device.
-    /// Change this to "http://localhost:8000" for Simulator.
-    static let defaultServerURL = URL(string: "http://10.19.49.115:8000")!
+    /// WiFi environment presets. Switch the active one below.
+    private static let OFFICE_WIFI = URL(string: "http://10.19.49.115:8000")!
+    private static let HOME_WIFI   = URL(string: "http://192.168.1.156:8000")!
+
+    /// Default server URL — change this to switch WiFi environment.
+    static let defaultServerURL = HOME_WIFI
 
     private let urlSession: URLSession
     private let decoder: JSONDecoder

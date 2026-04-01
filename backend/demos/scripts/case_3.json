@@ -1,0 +1,11 @@
+{
+  "name": "Case 3: Meeting with multiple deep agents",
+  "description": "User summons shijing, eva, and ming to investigate an ACH return spike. Agents work in parallel.",
+  "final_wait": 20,
+  "conversation": [
+    {"text": "help me call shijing, eva and ming", "wait": 10},
+    {"text": "From yesterday's metrics, I saw a spike in ACH return case, what is going on?", "wait": 20},
+    {"text": "no! just be quick", "wait": 15},
+    {"text": "ok, please continue research, each of you write a summary of your findings, I would like to see your investigations in my mailbox in 10 minutes", "wait": 15}
+  ]
+}

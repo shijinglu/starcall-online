@@ -1,0 +1,10 @@
+{
+  "name": "Case 5: Delegated task with proactive agent report",
+  "description": "User fires off a background task to Ellen, asks unrelated question. Ellen reports back when ready.",
+  "final_wait": 15,
+  "conversation": [
+    {"text": "Ellen, please draft a summary of last week's fraud incidents and send it to the team.", "wait": 10},
+    {"text": "also, what is the current ACH processing volume?", "wait": 10},
+    {"text": "good. anything urgent in there?", "wait": 15}
+  ]
+}

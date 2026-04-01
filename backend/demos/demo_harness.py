@@ -19,6 +19,35 @@ from pathlib import Path
 import httpx
 import websockets
 
+SCRIPTS_DIR = Path(__file__).resolve().parent / "scripts"
+
+
+def load_script(path: str | Path) -> dict:
+    """Load a conversation script from a JSON file.
+
+    Accepts an absolute path, a relative path, or a bare name like "case_2"
+    (resolved to scripts/case_2.json).
+
+    Returns dict with keys: name, description, conversation, final_wait.
+    Each conversation entry has: text, wait.
+    """
+    p = Path(path)
+    if not p.suffix:
+        p = SCRIPTS_DIR / f"{p.name}.json"
+    if not p.is_absolute():
+        p = SCRIPTS_DIR / p
+    with open(p) as f:
+        data = json.load(f)
+    # Validate minimal structure
+    assert "conversation" in data, f"Script missing 'conversation' key: {p}"
+    for i, turn in enumerate(data["conversation"]):
+        assert "text" in turn, f"Turn {i} missing 'text': {p}"
+        turn.setdefault("wait", 10)
+    data.setdefault("name", p.stem)
+    data.setdefault("description", "")
+    data.setdefault("final_wait", 10)
+    return data
+
 # ---------- Configuration ----------
 BACKEND_URL = "http://localhost:8000"
 WS_URL = "ws://localhost:8000/api/v1/conversation/live"

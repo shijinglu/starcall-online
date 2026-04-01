@@ -10,6 +10,7 @@ from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
 from a2a.utils import new_agent_text_message
 
+from app.agent_task_manager import _comm_callbacks
 from app.models import AgentSession
 
 if TYPE_CHECKING:
@@ -39,7 +40,8 @@ class ClaudeA2AExecutor(AgentExecutor):
 
         try:
             agent_session = AgentSession(agent_name=agent_name)
-            result_text = await self.sdk_runner.run(agent_session, task_text)
+            on_text = _comm_callbacks.get(agent_name)
+            result_text = await self.sdk_runner.run(agent_session, task_text, on_text=on_text)
 
             await event_queue.enqueue_event(
                 new_agent_text_message(result_text or "No result.", context_id, task_id)

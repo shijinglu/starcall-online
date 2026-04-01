@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -45,6 +45,7 @@ class SDKAgentRunner:
         self,
         agent_session: "AgentSession",
         task: str,
+        on_text: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> str:
         """Run an agent task via the Agent SDK.
 
@@ -113,6 +114,8 @@ class SDKAgentRunner:
                                 agent,
                                 block.text[:300],
                             )
+                            if on_text:
+                                await on_text(agent, block.text)
                         elif isinstance(block, ToolUseBlock):
                             logger.info(
                                 "[%s] tool_call: %s(%s)",

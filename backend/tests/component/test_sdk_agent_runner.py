@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from claude_agent_sdk import ResultMessage, SystemMessage
+from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, TextBlock
 
 from app.models import AgentSession, ConversationSession
 from app.registry import AgentRegistry
@@ -29,6 +29,20 @@ def _make_result_msg() -> ResultMessage:
         session_id=SESSION_ID,
         result=RESULT_TEXT,
     )
+
+
+def _make_assistant_msg(text: str) -> AssistantMessage:
+    return AssistantMessage(content=[TextBlock(text=text)], model="claude-sonnet-4-20250514")
+
+
+INTERMEDIATE_TEXT = "Let me investigate the wire reversal and consult Eva."
+
+
+async def fake_query_gen_with_text(**kwargs):
+    """Fake async generator with intermediate TextBlock before result."""
+    yield _make_system_msg()
+    yield _make_assistant_msg(INTERMEDIATE_TEXT)
+    yield _make_result_msg()
 
 
 async def fake_query_gen(**kwargs):
@@ -93,3 +107,39 @@ async def test_run_appends_conversation_history(registry, tts_service):
     assert agent_session.conversation_history[0]["role"] == "user"
     assert agent_session.conversation_history[1]["role"] == "assistant"
     assert "42" in agent_session.conversation_history[1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_run_invokes_on_text_for_intermediate_textblocks(registry, tts_service):
+    """on_text callback should be called for TextBlocks in AssistantMessages."""
+    from app.sdk_agent_runner import SDKAgentRunner
+
+    runner = SDKAgentRunner(registry, tts_service)
+    agent_session = AgentSession(agent_name="shijing")
+
+    collected = []
+
+    async def on_text(agent_name: str, text: str):
+        collected.append((agent_name, text))
+
+    with patch("app.sdk_agent_runner.query") as mock_query:
+        mock_query.return_value = fake_query_gen_with_text()
+        await runner.run(agent_session, "Check the wire", on_text=on_text)
+
+    assert len(collected) == 1
+    assert collected[0] == ("shijing", INTERMEDIATE_TEXT)
+
+
+@pytest.mark.asyncio
+async def test_run_does_not_invoke_on_text_when_none(registry, tts_service):
+    """When on_text is None (default), no error occurs."""
+    from app.sdk_agent_runner import SDKAgentRunner
+
+    runner = SDKAgentRunner(registry, tts_service)
+    agent_session = AgentSession(agent_name="shijing")
+
+    with patch("app.sdk_agent_runner.query") as mock_query:
+        mock_query.return_value = fake_query_gen_with_text()
+        result = await runner.run(agent_session, "Check the wire")
+
+    assert result == RESULT_TEXT

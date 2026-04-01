@@ -12,6 +12,7 @@ dependencies = [
     "google-cloud-texttospeech>=2.16",
     "pydantic>=2.7",
     "python-dotenv>=1.0",
+    "a2a-sdk[http-server]>=0.3",
 ]
 
 [project.optional-dependencies]

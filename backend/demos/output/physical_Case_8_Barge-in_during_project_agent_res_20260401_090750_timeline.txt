@@ -1,0 +1,28 @@
+    0.0s  Demo started
+    0.1s  Mac volume set to 30%
+    0.2s  iPhone detected via USB
+    0.2s  Launching VoiceAgent app on iPhone...
+    0.5s  App launched on iPhone
+    0.5s  Waiting 10s for START tap...
+    2.6s  SESSION created: s-b7b0e6ed-4540-4536-a808-1ed38dc990ce
+    2.6s  WEBSOCKET connected
+    2.9s  GEMINI session started
+   10.5s  START tap window elapsed
+   10.5s  Waiting for session init...
+   13.5s  Starting conversation (5 turns)
+   13.5s  SAY [Turn 1/5]: "Hello, there"
+   15.1s  SAY done (1537ms)
+   16.1s  GEMINI heard: "He"
+   16.1s  GEMINI heard: "Hello there."
+   17.0s  MODERATOR audio enqueued: 46080 bytes (1.4s)
+   18.4s  GEMINI turn complete (listening)
+   21.2s  SAY [Turn 2/5]: "Can you help me check if I have time for a dinner at 6PM?"
+   25.0s  SAY done (3854ms)
+   33.2s  SAY [Turn 3/5]: "Ellen, walk me through yesterday's transaction anomalies"
+   36.9s  SAY done (3721ms)
+   51.2s  SAY [Turn 4/5]: "hold on, just the top 3 by dollar amount, skip the details"
+   55.9s  SAY done (4652ms)
+   68.0s  SAY [Turn 5/5]: "flag the wire reversal and send me a one-liner on it"
+   71.4s  SAY done (3348ms)
+   83.5s  Conversation done, waiting 15s for trailing responses...
+   98.7s  Demo complete

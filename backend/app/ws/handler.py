@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -140,16 +141,30 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query(...)):
             "WS error for session %s: %s", session.session_id, exc, exc_info=True
         )
     finally:
-        logger.info("WS disconnected for session %s", session.session_id)
+        sid = session.session_id
+        total_frames = _ws_frame_counters.pop(sid, 0)
+        _ws_frame_last_log.pop(sid, None)
+        logger.info(
+            "WS disconnected for session %s "
+            "(total iOS audio frames received=%d)",
+            sid,
+            total_frames,
+        )
         if session.output_controller:
             await session.output_controller.stop()
         await _gemini_proxy.close_session(session)
-        await _session_manager.terminate_session(session.session_id)
+        await _session_manager.terminate_session(sid)
 
 
 # ------------------------------------------------------------------
 # Frame routing
 # ------------------------------------------------------------------
+
+
+# DIAG: per-session frame counters for WS audio health monitoring
+_ws_frame_counters: dict[str, int] = {}
+_ws_frame_last_log: dict[str, float] = {}
+_WS_DIAG_INTERVAL = 10.0  # log every 10 seconds
 
 
 async def _handle_binary_frame(data: bytes, session: "ConversationSession") -> None:
@@ -162,6 +177,23 @@ async def _handle_binary_frame(data: bytes, session: "ConversationSession") -> N
 
     if msg_type == MsgType.AUDIO_CHUNK:
         _session_manager.touch(session.session_id)
+
+        # DIAG: periodic log of iOS audio frame reception
+        sid = session.session_id
+        _ws_frame_counters[sid] = _ws_frame_counters.get(sid, 0) + 1
+        now = time.monotonic()
+        last = _ws_frame_last_log.get(sid, 0.0)
+        if now - last >= _WS_DIAG_INTERVAL:
+            _ws_frame_last_log[sid] = now
+            logger.info(
+                "[session=%s] DIAG WS-RECV: iOS audio frames received=%d, "
+                "audio_queue_size=%d, gemini_session_alive=%s",
+                sid,
+                _ws_frame_counters[sid],
+                session.audio_queue.qsize(),
+                session.gemini_session is not None,
+            )
+
         await _gemini_proxy.send_audio_chunk(session, pcm)
     else:
         await send_error(

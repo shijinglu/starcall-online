@@ -267,7 +267,15 @@ def run_demo(
             print(f"  {i+1}. \"{turn['text']}\" (wait {turn['wait']}s)")
         return
 
-    # Phase 3: Run conversation
+    # Phase 3: Beep countdown before conversation
+    tl.add("Beep countdown (3 beeps, 2s apart)")
+    for beep_num in range(1, 4):
+        print(f"  BEEP {beep_num}/3")
+        subprocess.run(["afplay", "/System/Library/Sounds/Tink.aiff"], check=True)
+        time.sleep(2)
+    tl.add("Beep countdown done, starting conversation")
+
+    # Phase 3b: Run conversation
     tl.add(f"Starting conversation ({len(conversation)} turns)")
 
     for i, turn in enumerate(conversation):

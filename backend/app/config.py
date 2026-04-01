@@ -50,3 +50,7 @@ MAX_AGENT_BUDGET_USD: float = float(os.getenv("MAX_AGENT_BUDGET_USD", "5.0"))
 
 # --- Backend directory (working dir for Agent SDK subprocess) ---
 BACKEND_DIR: Path = _backend_dir
+
+# A2A protocol
+A2A_BASE_URL: str = os.getenv("A2A_BASE_URL", "http://localhost:8000")
+A2A_MAX_DELEGATION_DEPTH: int = int(os.getenv("A2A_MAX_DELEGATION_DEPTH", "2"))

@@ -31,7 +31,7 @@ def build_agent_card(
     return AgentCard(
         name=agent_name,
         description=entry.description,
-        url=f"{base_url}/a2a/{agent_name}",
+        url=f"{base_url}/a2a/{agent_name}/",
         version="1.0.0",
         capabilities=AgentCapabilities(streaming=True),
         skills=skills,

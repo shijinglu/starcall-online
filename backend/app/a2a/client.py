@@ -26,7 +26,7 @@ async def send_task_to_agent(
     metadata: dict | None = None,
 ) -> str:
     """Send a task to an agent via A2A and return the result text."""
-    agent_url = f"{base_url}/a2a/{agent_name}"
+    agent_url = f"{base_url}/a2a/{agent_name}/"
 
     async with httpx.AsyncClient(timeout=180.0) as http_client:
         resolver = A2ACardResolver(httpx_client=http_client, base_url=agent_url)

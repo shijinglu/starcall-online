@@ -115,6 +115,7 @@ class OutputController:
         """Flush queued audio (barge-in).  If gen_id given, only flush stale items."""
         before_mod = len(self._moderator_queue)
         before_agent = len(self._agent_queue)
+        prev_state = self.state
         if gen_id is None:
             self._moderator_queue.clear()
             self._agent_queue.clear()
@@ -127,10 +128,14 @@ class OutputController:
             ]
         # Signal active _send_audio to abort
         self._flushed = True
+        items_flushed = (before_mod - len(self._moderator_queue)) + (
+            before_agent - len(self._agent_queue)
+        )
         logger.info(
-            "DIAG OutputController: flush gen_id=%s, "
-            "mod_q %d->%d, agent_q %d->%d, state->LISTENING",
-            gen_id, before_mod, len(self._moderator_queue),
+            "INTERRUPT: barge-in detected, prev_state=%s, gen_id=%s, "
+            "items_flushed=%d, mod_q %d->%d, agent_q %d->%d",
+            prev_state.value, gen_id, items_flushed,
+            before_mod, len(self._moderator_queue),
             before_agent, len(self._agent_queue),
         )
         self.state = OutputState.LISTENING
@@ -232,10 +237,14 @@ class OutputController:
             for offset in range(0, len(item.pcm), _AUDIO_CHUNK_SIZE):
                 # Check if flush was requested mid-send
                 if self._flushed:
+                    elapsed_audio = (chunks_sent * _AUDIO_CHUNK_SIZE) / (16000 * 2)
+                    total_audio = len(item.pcm) / (16000 * 2)
                     logger.info(
-                        "DIAG OutputController._send_audio: flush interrupted "
-                        "speaker=%s after %d chunks",
-                        item.speaker, chunks_sent,
+                        "INTERRUPT: playback aborted for speaker=%s, "
+                        "played=%.1fs of %.1fs (%.0f%%), chunks_sent=%d",
+                        item.speaker, elapsed_audio, total_audio,
+                        (elapsed_audio / total_audio * 100) if total_audio > 0 else 0,
+                        chunks_sent,
                     )
                     return
 

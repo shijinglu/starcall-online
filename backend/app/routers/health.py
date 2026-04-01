@@ -9,7 +9,7 @@ from fastapi import APIRouter
 if TYPE_CHECKING:
     from app.session_manager import SessionManager
 
-router = APIRouter(prefix="/api/v1", tags=["health"])
+router = APIRouter(tags=["health"])
 
 _session_manager: "SessionManager" = None  # type: ignore[assignment]
 
@@ -21,7 +21,13 @@ def init_health_router(session_manager: "SessionManager") -> None:
 
 @router.get("/health")
 def health():
-    """Service health check."""
+    """Root health check — returns 200 OK for load-balancer probes."""
+    return {"status": "ok"}
+
+
+@router.get("/api/v1/health")
+def health_detailed():
+    """Detailed service health check."""
     return {
         "status": "ok",
         "version": "0.1.0",

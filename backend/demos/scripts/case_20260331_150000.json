@@ -1,0 +1,11 @@
+{
+  "name": "Case 8: Barge-in during project agent response",
+  "description": "User interrupts Ellen mid-report to redirect her. Validates barge-in works during deep agent TTS playback.",
+  "final_wait": 15,
+  "conversation": [
+    {"text": "Hello, there", "wait": 4},
+    {"text": "Ellen, walk me through yesterday's transaction anomalies", "wait": 14},
+    {"text": "hold on, just the top 3 by dollar amount, skip the details", "wait": 12},
+    {"text": "flag the wire reversal and send me a one-liner on it", "wait": 12}
+  ]
+}

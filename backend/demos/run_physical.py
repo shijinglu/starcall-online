@@ -25,7 +25,7 @@ from demo_harness import SCRIPTS_DIR, load_script
 # ---------- Configuration ----------
 BACKEND_LOG = Path(__file__).resolve().parent.parent / "logs" / "app.log"
 DEFAULT_VOICE = "Samantha"
-DEFAULT_VOLUME = 65
+DEFAULT_VOLUME = 30
 
 DEVICE_ECID = "07A23C42-5796-5D3A-BC9A-CC2288AC325A"
 BUNDLE_ID = "com.shijinglu.VoiceAgent"
@@ -110,6 +110,14 @@ LOG_PATTERNS = [
     (
         re.compile(r"^(\S+ \S+).*enqueue AGENT=(\w+) pcm=(\d+) bytes \(([^)]+)\)"),
         lambda m: f"AGENT audio enqueued: {m.group(2)} {m.group(3)} bytes ({m.group(4)})",
+    ),
+    (
+        re.compile(r"^(\S+ \S+).*INTERRUPT: barge-in detected, prev_state=(\w+).*items_flushed=(\d+)"),
+        lambda m: f"INTERRUPT: barge-in (was {m.group(2)}, flushed {m.group(3)} items)",
+    ),
+    (
+        re.compile(r"^(\S+ \S+).*INTERRUPT: playback aborted for speaker=(\w+), played=([\d.]+)s of ([\d.]+)s"),
+        lambda m: f"INTERRUPT: {m.group(2)} playback cut at {m.group(3)}s/{m.group(4)}s",
     ),
     (
         re.compile(r"^(\S+ \S+).*Turn complete, continuing to listen"),

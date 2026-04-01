@@ -118,6 +118,48 @@ The conversation will be something like:
 (ellen): "here are the top 5: user IDs 1023, 4857, 9901, 3312, 0088."
 
 
+### Example Case 7: Barge-in during moderator response
+
+User interrupts the fast moderator mid-sentence. The app immediately stops playback and processes the new request.
+
+The conversation will be something like:
+<<user pushed start button>>
+(user): "give me a detailed breakdown of our payment processing pipeline" <<pause>>
+(app): "sure! your payment pipeline has five stages. first, the transaction enters the ingestion layer where we validate the payload schema and check for duplicate—"
+(user): "actually stop, what's our current uptime?"
+(app): "99.97% over the last 30 days."
+(user): "great, and any incidents this week?"
+(app): "no incidents this week, all systems green."
+
+* **What this demonstrates:**
+  * VAD detects user speech while TTS audio is still playing
+  * Backend sends an interruption event to the client
+  * Client flushes the audio playback queue immediately (mid-word cutoff is fine)
+  * The moderator's interrupted response is discarded; the new question is processed fresh
+
+
+### Example Case 8: Barge-in during project agent response
+
+User interrupts a deep agent (Ellen) mid-report. The moderator acknowledges the interruption and redirects.
+
+The conversation will be something like:
+<<user pushed start button>>
+(user): "Ellen, walk me through yesterday's transaction anomalies" <<pause>>
+(app): "on it, Ellen is looking into it."
+<<15 seconds later>>
+(ellen): "hi boss, I found 12 anomalies yesterday. Let me go through them. First, there was a cluster of 4 reversed ACH transfers from account ending in 8842, totaling $23,400. The pattern suggests—"
+(user): "hold on, just the top 3 by dollar amount, skip the details"
+(app): "got it, redirecting Ellen."
+(ellen): "copy. top 3 by amount: one, $15,200 wire reversal from merchant GlobalTech. two, $12,800 chargeback cluster on card ending 4491. three, $8,400 ACH return from the 8842 account I mentioned."
+(user): "flag the wire reversal and send me a one-liner on it"
+(ellen): "flagged. summary sent: 'Suspicious $15.2K wire reversal from GlobalTech — no matching inbound in the last 90 days.'"
+
+* **What this demonstrates:**
+  * Barge-in works the same regardless of whether the moderator or a project agent is speaking — the audio pipeline doesn't distinguish
+  * The interrupted agent receives context about the interruption (user's new instruction) and adjusts its response accordingly
+  * The moderator can optionally insert a quick acknowledgment ("got it, redirecting") before the agent resumes
+
+
 ## Tech Stack
 
 | Component | Technology | Comment |

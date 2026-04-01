@@ -13,17 +13,23 @@ logger = logging.getLogger(__name__)
 
 _REPHRASE_MODEL = "gemini-2.5-flash"
 
+_MAX_SPOKEN_CHARS = 500  # ~30s of TTS audio at typical speaking rate
+
 _SYSTEM_PROMPT = """\
 You are a text-to-speech preprocessor. Rewrite the following text so it sounds \
 natural when read aloud by a TTS engine.
 
 Rules:
-- PRESERVE KEY content — do no drop any facts, numbers, or important details.
-- Your output should be roughly the SAME LENGTH as the input, just reformatted for speech.
+- HARD LIMIT: Your output MUST be {max_chars} characters or fewer. This is \
+roughly 30 seconds of spoken audio. Ruthlessly prioritize — lead with the most \
+important findings, drop boilerplate, and cut follow-up offers like "would you \
+like me to…".
+- PRESERVE KEY content — keep critical facts, numbers, and conclusions but \
+summarize supporting detail.
 - Use short, clear sentences in a conversational speaking style.
 - Prefer common spoken words over formal or technical phrasing.
 - Spell out abbreviations and avoid symbols when possible.
-"""
+""".format(max_chars=_MAX_SPOKEN_CHARS)
 
 # Lazy-initialised client
 _client: genai.Client | None = None
@@ -58,6 +64,18 @@ async def rephrase_for_tts(text: str) -> str:
         )
         rephrased = response.text
         if rephrased:
+            if len(rephrased) > _MAX_SPOKEN_CHARS:
+                # Hard-truncate at last sentence boundary within limit
+                truncated = rephrased[:_MAX_SPOKEN_CHARS]
+                last_period = truncated.rfind(".")
+                if last_period > _MAX_SPOKEN_CHARS // 2:
+                    truncated = truncated[: last_period + 1]
+                logger.warning(
+                    "TTS rephrase exceeded %d char cap (%d chars), "
+                    "truncated to %d chars",
+                    _MAX_SPOKEN_CHARS, len(rephrased), len(truncated),
+                )
+                rephrased = truncated
             logger.info(
                 "TTS rephrase: %d chars -> %d chars, "
                 "input_preview=%.100s, output_full=%s",

@@ -62,7 +62,47 @@ Reference format (from `backend/demos/scripts/case_2.json`):
 
 ---
 
-## Step 3: Run the test case
+## Step 3: Verify backend is running
+
+Before building or running anything, check that the backend server is up:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health
+```
+
+- If the response is `200`, proceed to Step 4.
+- If the request fails or returns a non-200 status, **stop and ask the user**:
+
+> The backend server does not appear to be running at `http://localhost:8000`. Please start it (`cd backend && make run`) and confirm when it's ready.
+
+Wait for the user to confirm before continuing. Do **not** start the backend yourself.
+
+---
+
+## Step 4: Build and install the app
+
+Before running the test, **always** rebuild the iOS app and deploy it to the **physical device** (not the simulator). This ensures the test runs against the latest code on real hardware.
+
+Use the shell to build and deploy:
+
+1. Build the app for physical device using xcodebuild:
+   ```bash
+   cd /Users/shijinglu/Workspace/hackthon/ios && \
+     xcodebuild -project VoiceAgent.xcodeproj -scheme VoiceAgent \
+     -destination 'generic/platform=iOS' \
+     -allowProvisioningUpdates \
+     build 2>&1 | tail -20
+   ```
+2. Install the built app on the connected physical device using `ios-deploy` or `xcrun devicectl`:
+   ```bash
+   xcrun devicectl device install app --device <DEVICE_UDID> <PATH_TO_APP>
+   ```
+   To find the device UDID: `xcrun devicectl list devices`
+   To find the built .app path: check the xcodebuild output or look in DerivedData.
+3. If the build or install fails, **stop immediately** and report the error to the user. Do not proceed to run the test case.
+---
+
+## Step 5: Run the test case
 
 Execute the physical demo runner:
 
@@ -82,14 +122,14 @@ Let the command run to completion (it may take several minutes). Use a timeout o
 
 ---
 
-## Step 4: Collect diagnostic artifacts
+## Step 6: Collect diagnostic artifacts
 
 After the runner finishes, gather these artifacts:
 
-### 4a. Runner output
-The runner's stdout/stderr — already captured from Step 3.
+### 6a. Runner output
+The runner's stdout/stderr — already captured from Step 5.
 
-### 4b. Backend logs
+### 6b. Backend logs
 Read the latest log snapshot saved by the runner in `backend/demos/output/`. Also read the timeline file.
 
 ```bash
@@ -99,15 +139,15 @@ ls -t backend/demos/output/physical_*.log | head -1
 
 Read both files.
 
-### 4c. Backend app log (recent tail)
+### 6c. Backend app log (recent tail)
 Read the tail of `backend/logs/app.log` (last 300 lines) for additional context like errors, warnings, or agent dispatch details.
 
-### 4d. Mobile logs (if accessible)
+### 6d. Mobile logs (if accessible)
 If mobile-mcp is available, attempt to capture device logs. If not accessible, note this in the report and proceed without them.
 
 ---
 
-## Step 5: Diagnose — compare actual vs. planned
+## Step 7: Diagnose — compare actual vs. planned
 
 Using the original test case (the *expected* conversation flow) and the collected logs, analyze each of the following dimensions:
 
@@ -159,7 +199,7 @@ Build a turn-by-turn comparison table:
 
 ---
 
-## Step 6: Compose the test result summary
+## Step 8: Compose the test result summary
 
 Produce a structured report with these sections:
 

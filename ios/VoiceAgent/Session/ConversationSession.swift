@@ -63,6 +63,10 @@ final class ConversationSession: NSObject {
     /// Track chunks sent to backend during playback vs silence.
     private var diagChunksSentDuringPlayback: Int = 0
     private var diagChunksSentDuringSilence: Int = 0
+    /// DIAG: track gate transitions and playback frame counts
+    private var diagLastIsPlayingState: Bool = false
+    private var diagBinaryFramesReceived: Int = 0
+    private var diagSpeakerFinishedCount: Int = 0
 
     // MARK: - Init
 
@@ -141,9 +145,15 @@ final class ConversationSession: NSObject {
 
             // When a speaker finishes playing, update isPlaying so the audio
             // gate re-opens and mic audio flows to Gemini again.
-            playbackEngine.onSpeakerFinished = { [weak self] _ in
+            playbackEngine.onSpeakerFinished = { [weak self] speakerId in
                 guard let self = self else { return }
-                self.audioCaptureEngine.isPlaying = self.playbackEngine.isAnyPlaying
+                let wasPlaying = self.audioCaptureEngine.isPlaying
+                let isNowPlaying = self.playbackEngine.isAnyPlaying
+                self.audioCaptureEngine.isPlaying = isNowPlaying
+                self.diagSpeakerFinishedCount += 1
+                if wasPlaying != isNowPlaying {
+                    Log.info("DIAG-GATE: onSpeakerFinished speaker=\(speakerId) isPlaying \(wasPlaying)->\(isNowPlaying) callbacks=\(self.diagSpeakerFinishedCount) skipped=\(self.diagChunksSentDuringPlayback) sent=\(self.diagChunksSentDuringSilence)", tag: "ConversationSession")
+                }
             }
 
             state = .active
@@ -328,10 +338,19 @@ extension ConversationSession: WebSocketTransportDelegate {
             return
         }
         let pcm = Data(data.dropFirst(AudioFrameHeader.size))
+        diagBinaryFramesReceived += 1
+        let wasPlaying = audioCaptureEngine.isPlaying
         playbackEngine.receiveAudioFrame(header: header, pcm: pcm)
 
         // Update playing state for the capture engine's barge-in detection.
-        audioCaptureEngine.isPlaying = playbackEngine.isAnyPlaying
+        let isNowPlaying = playbackEngine.isAnyPlaying
+        audioCaptureEngine.isPlaying = isNowPlaying
+        if wasPlaying != isNowPlaying {
+            Log.info("DIAG-GATE: receiveBinaryFrame isPlaying \(wasPlaying)->\(isNowPlaying) binaryFrames=\(diagBinaryFramesReceived) speaker=\(header.speakerId) pcmBytes=\(pcm.count)", tag: "ConversationSession")
+        }
+        if diagBinaryFramesReceived == 1 || diagBinaryFramesReceived % 50 == 0 {
+            Log.info("DIAG-GATE: receiveBinaryFrame #\(diagBinaryFramesReceived) speaker=\(header.speakerId) isPlaying=\(isNowPlaying) pcmBytes=\(pcm.count)", tag: "ConversationSession")
+        }
         delegate?.sessionDidUpdatePlayingSpeaker(playbackEngine.currentlyPlayingSpeaker)
     }
 
@@ -408,6 +427,12 @@ extension ConversationSession: AudioCaptureEngineDelegate {
 
         let isCurrentlyPlaying = audioCaptureEngine.isPlaying
 
+        // DIAG: log gate state transitions
+        if isCurrentlyPlaying != diagLastIsPlayingState {
+            Log.info("DIAG-GATE: audio gate \(isCurrentlyPlaying ? "CLOSED (dropping chunks)" : "OPEN (sending chunks)") skipped=\(diagChunksSentDuringPlayback) sent=\(diagChunksSentDuringSilence) isAnyPlaying=\(playbackEngine.isAnyPlaying) speakerFinishedCallbacks=\(diagSpeakerFinishedCount)", tag: "ConversationSession")
+            diagLastIsPlayingState = isCurrentlyPlaying
+        }
+
         // Gate: Do NOT send audio to Gemini while TTS is playing.
         // Even with hardware AEC, residual echo (20-40% of chunks at 15-20 dB)
         // reaches Gemini's server-side VAD which transcribes it as user speech.
@@ -415,6 +440,9 @@ extension ConversationSession: AudioCaptureEngineDelegate {
         // flushes playback → isPlaying becomes false → audio flows again.
         if isCurrentlyPlaying {
             diagChunksSentDuringPlayback += 1
+            if diagChunksSentDuringPlayback == 1 || diagChunksSentDuringPlayback % 100 == 0 {
+                Log.info("DIAG-GATE: chunk DROPPED #\(diagChunksSentDuringPlayback) (isPlaying=true, isAnyPlaying=\(playbackEngine.isAnyPlaying))", tag: "ConversationSession")
+            }
             // Still update UI amplitude but don't send to backend.
             let samples = data.withUnsafeBytes { rawBuffer -> [Int16] in
                 guard let base = rawBuffer.baseAddress else { return [] }

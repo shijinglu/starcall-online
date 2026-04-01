@@ -19,6 +19,9 @@ final class ConversationViewModel: ObservableObject {
     @Published var errorMessage: String? = nil
     @Published var currentlyPlayingSpeaker: UInt8? = nil
     @Published var isMuted: Bool = false
+    /// Latest intermediate reasoning text per agent (no TTS).
+    /// Value is (text, genId) so stale entries can be cleared on barge-in.
+    @Published var agentCommTexts: [String: (text: String, genId: Int)] = [:]
 
     // MARK: - Session
 
@@ -123,6 +126,18 @@ final class ConversationViewModel: ObservableObject {
         meetingProgress = event
     }
 
+    // MARK: - Agent Comm Handling
+
+    /// Handle an agent_comm event — store latest text per agent.
+    func handleAgentCommEvent(_ event: AgentCommEvent) {
+        agentCommTexts[event.fromAgent] = (text: event.text, genId: event.genId)
+    }
+
+    /// Clear agent comm entries with stale gen_id.
+    func clearStaleAgentComms(currentGenId: Int) {
+        agentCommTexts = agentCommTexts.filter { $0.value.genId >= currentGenId }
+    }
+
     // MARK: - Reset
 
     /// Reset all state for a new session.
@@ -132,6 +147,7 @@ final class ConversationViewModel: ObservableObject {
         agentStatuses.removeAll()
         agentElapsedMs.removeAll()
         meetingProgress = nil
+        agentCommTexts.removeAll()
         micAmplitude = 0.0
         errorMessage = nil
         currentlyPlayingSpeaker = nil
@@ -166,6 +182,18 @@ extension ConversationViewModel: ConversationSessionDelegate {
     nonisolated func sessionDidReceiveMeetingStatus(_ event: MeetingStatusEvent) {
         Task { @MainActor in
             self.handleMeetingStatusEvent(event)
+        }
+    }
+
+    nonisolated func sessionDidReceiveAgentComm(_ event: AgentCommEvent) {
+        Task { @MainActor in
+            self.handleAgentCommEvent(event)
+        }
+    }
+
+    nonisolated func sessionDidReceiveBargeIn(currentGenId: Int) {
+        Task { @MainActor in
+            self.clearStaleAgentComms(currentGenId: currentGenId)
         }
     }
 

@@ -55,6 +55,14 @@ struct MeetingStatusEvent {
     let failed: [String]
 }
 
+/// Parsed agent_comm server event — intermediate agent reasoning text (no TTS).
+struct AgentCommEvent {
+    let fromAgent: String
+    let toAgent: String?
+    let text: String
+    let genId: Int
+}
+
 /// A single line in the conversation transcript.
 struct TranscriptLine: Identifiable {
     let id = UUID()

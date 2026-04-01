@@ -7,6 +7,8 @@ protocol ConversationSessionDelegate: AnyObject {
     func sessionDidReceiveTranscript(_ json: [String: Any])
     func sessionDidReceiveAgentStatus(_ event: AgentStatusEvent)
     func sessionDidReceiveMeetingStatus(_ event: MeetingStatusEvent)
+    func sessionDidReceiveAgentComm(_ event: AgentCommEvent)
+    func sessionDidReceiveBargeIn(currentGenId: Int)
     func sessionDidReceiveError(_ message: String)
     func sessionDidUpdateMicAmplitude(_ amplitude: Float)
     func sessionDidUpdatePlayingSpeaker(_ speakerId: UInt8?)
@@ -214,6 +216,7 @@ final class ConversationSession: NSObject {
         playbackEngine.flushAllAndStop(newGen: currentGen)
         audioCaptureEngine.isPlaying = false
         transport.sendJSON(["type": "interrupt", "mode": "cancel_all"])
+        delegate?.sessionDidReceiveBargeIn(currentGenId: Int(currentGen))
         Log.info("DIAG: handleBargein complete, isPlaying reset to false", tag: "ConversationSession")
     }
 
@@ -232,6 +235,7 @@ final class ConversationSession: NSObject {
         // Flush playback with server's gen_id to discard stale audio.
         playbackEngine.flushAllAndStop(newGen: currentGen)
         audioCaptureEngine.isPlaying = false
+        delegate?.sessionDidReceiveBargeIn(currentGenId: Int(currentGen))
     }
 
     // MARK: - Mute
@@ -310,6 +314,23 @@ final class ConversationSession: NSObject {
         delegate?.sessionDidReceiveError(errorMessage!)
     }
 
+    /// Parse and route an agent_comm JSON message.
+    func handleAgentComm(_ json: [String: Any]) {
+        guard let fromAgent = json["from_agent"] as? String,
+              let text = json["text"] as? String else { return }
+
+        let toAgent = json["to_agent"] as? String
+        let genId = json["gen_id"] as? Int ?? 0
+
+        let event = AgentCommEvent(
+            fromAgent: fromAgent,
+            toAgent: toAgent,
+            text: text,
+            genId: genId
+        )
+        delegate?.sessionDidReceiveAgentComm(event)
+    }
+
     // MARK: - Helpers
 
     /// Build the WebSocket URL from the base URL.
@@ -370,6 +391,8 @@ extension ConversationSession: WebSocketTransportDelegate {
         case "interruption":
             let genId = UInt8(json["gen_id"] as? Int ?? 0)
             handleServerInterruption(genId: genId)
+        case "agent_comm":
+            handleAgentComm(json)
         case "error":
             handleError(json)
         default:

@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING
+import time as _time
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 from app.a2a.client import send_task_to_agent
 from app.config import AGENT_TASK_TIMEOUT_SECONDS, THINKING_HEARTBEAT_INTERVAL_SECONDS
@@ -19,6 +20,16 @@ if TYPE_CHECKING:
     from app.tts_service import TTSService
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Process-level callback registry: agent_name -> on_text callable
+# Bridges the HTTP boundary between AgentTaskManager and ClaudeA2AExecutor.
+# ---------------------------------------------------------------------------
+_comm_callbacks: dict[str, Callable] = {}
+
+# Debounce tracking: agent_name -> last send timestamp
+_comm_last_sent: dict[str, float] = {}
+_COMM_DEBOUNCE_S = 0.5
 
 # ---------------------------------------------------------------------------
 # Fallback phrases per agent (used on timeout)
@@ -184,6 +195,27 @@ class AgentTaskManager:
                     time.time() - sem_wait_start,
                     AGENT_TASK_TIMEOUT_SECONDS,
                 )
+                # -- agent_comm callback registration --
+                async def _on_text(agent_name: str, text: str) -> None:
+                    now = _time.monotonic()
+                    last = _comm_last_sent.get(agent_name, 0.0)
+                    if now - last < _COMM_DEBOUNCE_S:
+                        return
+                    _comm_last_sent[agent_name] = now
+                    if self.send_json:
+                        await self.send_json(
+                            conv_session,
+                            {
+                                "type": "agent_comm",
+                                "from_agent": agent_name,
+                                "to_agent": None,
+                                "text": text,
+                                "gen_id": conv_session.gen_id,
+                            },
+                        )
+
+                _comm_callbacks[agent_session.agent_name] = _on_text
+
                 heartbeat_task = asyncio.create_task(
                     self._heartbeat_loop(conv_session, agent_session)
                 )
@@ -233,6 +265,8 @@ class AgentTaskManager:
                     return
                 finally:
                     heartbeat_task.cancel()
+                    _comm_callbacks.pop(agent_session.agent_name, None)
+                    _comm_last_sent.pop(agent_session.agent_name, None)
 
             # Rephrase + TTS + delivery outside the timeout window
             if full_text:

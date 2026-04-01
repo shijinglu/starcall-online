@@ -7,6 +7,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+from app.a2a.client import send_task_to_agent
 from app.config import AGENT_TASK_TIMEOUT_SECONDS, THINKING_HEARTBEAT_INTERVAL_SECONDS
 from app.models import AgentSession
 from app.tts_rephraser import rephrase_for_tts
@@ -188,7 +189,11 @@ class AgentTaskManager:
                 )
                 try:
                     full_text = await asyncio.wait_for(
-                        self._runner.run(agent_session, task),
+                        send_task_to_agent(
+                            agent_name=agent_session.agent_name,
+                            task_text=task,
+                            metadata={"agent_name": agent_session.agent_name},
+                        ),
                         timeout=AGENT_TASK_TIMEOUT_SECONDS,
                     )
                     logger.info(

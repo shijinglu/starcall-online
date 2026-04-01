@@ -23,6 +23,7 @@ class AgentSession:
     parent_session_id: str = ""
     created_at: float = field(default_factory=time.time)
     sdk_session_id: str | None = None
+    delegation_chain: list[str] = field(default_factory=list)
 
     current_frame_seq: int = 0
 

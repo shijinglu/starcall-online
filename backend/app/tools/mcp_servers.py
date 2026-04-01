@@ -8,6 +8,7 @@ from typing import Any
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from app.tools import ellen_tools, eva_tools, ming_tools, shijing_tools
+from app.a2a.delegation import ask_agent_handler
 
 # ---------------------------------------------------------------------------
 # Ellen tools
@@ -136,20 +137,62 @@ async def fraud_signal_read(args: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Inter-agent delegation tool (per-agent variant)
+# ---------------------------------------------------------------------------
+
+
+def _make_ask_agent_for(source_name: str):
+    """Create an ask_agent tool that knows its source agent name."""
+    peer_names = [n for n in ["ellen", "eva", "ming", "shijing"] if n != source_name]
+
+    @tool(
+        "ask_agent",
+        "Ask another agent a question. Use this when you need expertise "
+        "outside your domain. Do NOT ask yourself.",
+        {
+            "type": "object",
+            "properties": {
+                "agent_name": {
+                    "type": "string",
+                    "enum": peer_names,
+                    "description": "Name of the agent to ask",
+                },
+                "question": {
+                    "type": "string",
+                    "description": "The question or task for the other agent",
+                },
+            },
+            "required": ["agent_name", "question"],
+        },
+    )
+    async def ask_agent(args: dict[str, Any]) -> dict[str, Any]:
+        args["source_agent"] = source_name
+        return await ask_agent_handler(args)
+
+    return ask_agent
+
+
+_ask_ellen = _make_ask_agent_for("ellen")
+_ask_eva = _make_ask_agent_for("eva")
+_ask_ming = _make_ask_agent_for("ming")
+_ask_shijing = _make_ask_agent_for("shijing")
+
+
+# ---------------------------------------------------------------------------
 # Per-agent MCP servers
 # ---------------------------------------------------------------------------
 
 AGENT_MCP_SERVERS = {
     "ellen": create_sdk_mcp_server(
-        "ellen_tools", tools=[calendar_read, email_send, task_list]
+        "ellen_tools", tools=[calendar_read, email_send, task_list, _ask_ellen]
     ),
     "shijing": create_sdk_mcp_server(
-        "shijing_tools", tools=[user_profile_read, user_journey_read, risk_score_read]
+        "shijing_tools", tools=[user_profile_read, user_journey_read, risk_score_read, _ask_shijing]
     ),
     "eva": create_sdk_mcp_server(
-        "eva_tools", tools=[transaction_read, bank_data_read, chargeback_read]
+        "eva_tools", tools=[transaction_read, bank_data_read, chargeback_read, _ask_eva]
     ),
     "ming": create_sdk_mcp_server(
-        "ming_tools", tools=[id_check, async_risk_check, fraud_signal_read]
+        "ming_tools", tools=[id_check, async_risk_check, fraud_signal_read, _ask_ming]
     ),
 }

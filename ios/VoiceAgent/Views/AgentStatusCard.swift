@@ -11,6 +11,7 @@ struct AgentAvatarView: View {
     let definition: AgentDefinition
     let status: AgentStatusKind
     let isSpeaking: Bool
+    let commText: String?
 
     private let avatarSize: CGFloat = 52
 
@@ -45,6 +46,18 @@ struct AgentAvatarView: View {
             Text(definition.name)
                 .font(.system(size: 11))
                 .foregroundColor(NexusTheme.agentLabel)
+
+            // Agent comm text (intermediate reasoning, no TTS)
+            if let commText = commText, !commText.isEmpty {
+                Text(commText)
+                    .font(.system(size: 10).italic())
+                    .foregroundColor(NexusTheme.mutedText)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 100)
+                    .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.3), value: commText)
+            }
         }
     }
 
@@ -91,6 +104,7 @@ struct AgentAvatarView: View {
 struct AgentStripView: View {
     let agents: [(definition: AgentDefinition, status: AgentStatusKind)]
     let currentlyPlayingSpeaker: UInt8?
+    let commTexts: [String: String]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -107,7 +121,8 @@ struct AgentStripView: View {
                     AgentAvatarView(
                         definition: agent.definition,
                         status: agent.status,
-                        isSpeaking: isSpeaking
+                        isSpeaking: isSpeaking,
+                        commText: commTexts[agent.definition.key]
                     )
                 }
             }
@@ -139,7 +154,8 @@ struct AgentStripView: View {
                 (AgentDefinition.all[1], .done),
                 (AgentDefinition.all[2], .thinking),
             ],
-            currentlyPlayingSpeaker: nil
+            currentlyPlayingSpeaker: nil,
+            commTexts: ["ellen": "Checking calendar for conflicts..."]
         )
     }
 }

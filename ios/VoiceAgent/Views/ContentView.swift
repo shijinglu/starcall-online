@@ -99,7 +99,8 @@ public struct ContentView: View {
             if !activeAgents.isEmpty {
                 AgentStripView(
                     agents: activeAgents,
-                    currentlyPlayingSpeaker: viewModel.currentlyPlayingSpeaker
+                    currentlyPlayingSpeaker: viewModel.currentlyPlayingSpeaker,
+                    commTexts: viewModel.agentCommTexts.mapValues { $0.text }
                 )
                 .transition(.opacity.combined(with: .move(edge: .top)))
                 .animation(.easeInOut(duration: 0.3), value: viewModel.agentStatuses.count)

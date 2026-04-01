@@ -438,3 +438,6 @@ xcuserdata/
 
 # local files, skil check-in
 local/
+
+# Demo output artifacts
+backend/demos/output/

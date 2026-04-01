@@ -31,6 +31,9 @@ final class ConversationViewModel: ObservableObject {
     /// Without this, each partial event would append a new line, creating duplicates.
     private var inProgressTranscriptIndex: Int? = nil
 
+    /// Timers for auto-fading agent comm text.
+    private var commFadeTimers: [String: Task<Void, Never>] = [:]
+
     // MARK: - Init
 
     init(session: ConversationSession = ConversationSession()) {
@@ -131,6 +134,17 @@ final class ConversationViewModel: ObservableObject {
     /// Handle an agent_comm event — store latest text per agent.
     func handleAgentCommEvent(_ event: AgentCommEvent) {
         agentCommTexts[event.fromAgent] = (text: event.text, genId: event.genId)
+
+        // Cancel existing fade timer for this agent.
+        commFadeTimers[event.fromAgent]?.cancel()
+
+        // Start new 5-second fade timer.
+        let agentName = event.fromAgent
+        commFadeTimers[agentName] = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            self.agentCommTexts.removeValue(forKey: agentName)
+        }
     }
 
     /// Clear agent comm entries with stale gen_id.
@@ -148,6 +162,8 @@ final class ConversationViewModel: ObservableObject {
         agentElapsedMs.removeAll()
         meetingProgress = nil
         agentCommTexts.removeAll()
+        commFadeTimers.values.forEach { $0.cancel() }
+        commFadeTimers.removeAll()
         micAmplitude = 0.0
         errorMessage = nil
         currentlyPlayingSpeaker = nil

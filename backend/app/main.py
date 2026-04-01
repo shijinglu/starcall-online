@@ -8,8 +8,10 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from app.a2a.server import mount_a2a_servers
 from app.agent_task_manager import AgentTaskManager
 from app.gemini_proxy import GeminiLiveProxy
+from app.config import A2A_BASE_URL
 from app.registry import AgentRegistry
 from app.routers.agents import init_agents_router
 from app.routers.agents import router as agents_router
@@ -83,6 +85,9 @@ def create_app() -> FastAPI:
     init_sessions_router(session_manager)
     init_agents_router(agent_registry)
     init_health_router(session_manager)
+
+    # Mount A2A servers for inter-agent communication
+    mount_a2a_servers(application, agent_registry, sdk_agent_runner, base_url=A2A_BASE_URL)
 
     # --- Register routers ---
     application.include_router(ws_router)

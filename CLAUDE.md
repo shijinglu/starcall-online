@@ -18,7 +18,7 @@ backend/          Python FastAPI backend
   pyproject.toml  Dependencies and project config (uses uv + hatchling)
 
 ios/              Native iOS app (Swift, iOS 17+)
-  VoiceAgent/     App source code
+  StarCall/     App source code
     App/          SwiftUI entry point + Info.plist
     Audio/        AVAudioEngine mic capture and playback
     Models/       Data models
@@ -26,7 +26,7 @@ ios/              Native iOS app (Swift, iOS 17+)
     Session/      Session management
     ViewModel/    View models
     Views/        SwiftUI views
-  VoiceAgent.xcodeproj/  Xcode project (use this to build, not the SPM workspace)
+  StarCall.xcodeproj/  Xcode project (use this to build, not the SPM workspace)
   Package.swift   SPM package (library + tests only)
   project.yml     xcodegen spec (regenerate .xcodeproj with `xcodegen generate`)
   Makefile        make build | test | clean (SPM-based, for library/tests)
@@ -50,7 +50,7 @@ make test       # runs all tests
 **LOGS** backend logs are in `backend/logs/app.log`
 
 ### iOS
-Open `ios/VoiceAgent.xcodeproj` in Xcode, select an iOS 17+ simulator, and run.
+Open `ios/StarCall.xcodeproj` in Xcode, select an iOS 17+ simulator, and run.
 
 ## Key Tech
 

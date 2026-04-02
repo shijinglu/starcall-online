@@ -9,8 +9,8 @@ import os
 ///     Log.error("Send failed: \(error)", tag: "WebSocketTransport")
 ///
 /// Log files are stored at:
-///     <Documents>/Logs/VoiceAgent.log          (current)
-///     <Documents>/Logs/VoiceAgent.1.log         (previous, after rotation)
+///     <Documents>/Logs/StarCall.log          (current)
+///     <Documents>/Logs/StarCall.1.log         (previous, after rotation)
 public enum Log {
 
     // MARK: - Configuration
@@ -22,7 +22,7 @@ public enum Log {
 
     // MARK: - Internals
 
-    private static let osLog = os.Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceAgent", category: "app")
+    private static let osLog = os.Logger(subsystem: Bundle.main.bundleIdentifier ?? "StarCall", category: "app")
 
     private static let logDirectory: URL = {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -31,10 +31,10 @@ public enum Log {
         return dir
     }()
 
-    private static let logFileURL: URL = logDirectory.appendingPathComponent("VoiceAgent.log")
+    private static let logFileURL: URL = logDirectory.appendingPathComponent("StarCall.log")
 
     /// Serial queue to ensure thread-safe file writes.
-    private static let queue = DispatchQueue(label: "com.voiceagent.log", qos: .utility)
+    private static let queue = DispatchQueue(label: "com.starcall.log", qos: .utility)
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -117,18 +117,18 @@ public enum Log {
         let fm = FileManager.default
 
         // Remove oldest backup.
-        let oldest = logDirectory.appendingPathComponent("VoiceAgent.\(maxBackups).log")
+        let oldest = logDirectory.appendingPathComponent("StarCall.\(maxBackups).log")
         try? fm.removeItem(at: oldest)
 
         // Shift existing backups: 2 -> 3, 1 -> 2, etc.
         for i in stride(from: maxBackups - 1, through: 1, by: -1) {
-            let src = logDirectory.appendingPathComponent("VoiceAgent.\(i).log")
-            let dst = logDirectory.appendingPathComponent("VoiceAgent.\(i + 1).log")
+            let src = logDirectory.appendingPathComponent("StarCall.\(i).log")
+            let dst = logDirectory.appendingPathComponent("StarCall.\(i + 1).log")
             try? fm.moveItem(at: src, to: dst)
         }
 
         // Current -> .1
-        let backup1 = logDirectory.appendingPathComponent("VoiceAgent.1.log")
+        let backup1 = logDirectory.appendingPathComponent("StarCall.1.log")
         try? fm.moveItem(at: logFileURL, to: backup1)
     }
 
@@ -141,7 +141,7 @@ public enum Log {
     static var allLogFileURLs: [URL] {
         var urls = [logFileURL]
         for i in 1...maxBackups {
-            let url = logDirectory.appendingPathComponent("VoiceAgent.\(i).log")
+            let url = logDirectory.appendingPathComponent("StarCall.\(i).log")
             if FileManager.default.fileExists(atPath: url.path) {
                 urls.append(url)
             }

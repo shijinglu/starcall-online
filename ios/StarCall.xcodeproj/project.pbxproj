@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CCDD0011223344556677CCDD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6789012345678 /* Assets.xcassets */; };
 		00B7A49D2784CF02FFCB000E /* AgentStatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B204A6D96B3F8B93E8CF2D58 /* AgentStatusCard.swift */; };
 		033B93A3812FF539A16C9A82 /* AudioFrameHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB89D456B6A789B8034F2627 /* AudioFrameHeader.swift */; };
 		0695CDA1E3FB66D864CC7B02 /* MeetingProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB8390DA9FFDC5A0286ABCB1 /* MeetingProgressView.swift */; };
@@ -14,14 +15,14 @@
 		370BFF99FD6C7EBAB915085F /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A07A031B58AE43530FD2E172 /* ContentView.swift */; };
 		3D8FF2BF0227305D68837134 /* JSONMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25BD88B540EBE4054BD3FFC8 /* JSONMessages.swift */; };
 		511F854B69A3DE29414DC9C0 /* ConversationSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31A033E6F93C54238EB17CE0 /* ConversationSession.swift */; };
-		5849CD5E7555D960B5DD1FD8 /* NexusTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C601F9A036D7CABE265AE897 /* NexusTheme.swift */; };
+		5849CD5E7555D960B5DD1FD8 /* StarClTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C601F9A036D7CABE265AE897 /* StarClTheme.swift */; };
 		5E8EEDEFAF761FD74D136CDE /* BackgroundColorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5357AB80AFF5AB0905C8E973 /* BackgroundColorUITests.swift */; };
 		8B5BA4D70F371EF7C4546283 /* ConversationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9393300E8858C9462CA74446 /* ConversationViewModel.swift */; };
 		943AB284F8DA530D20EC7ED9 /* HTTPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7891EBB93162C30233EE2687 /* HTTPClient.swift */; };
 		B22567048B255ADF1BAAD7B6 /* WebSocketTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F03886EA5F8A68167EDF78E /* WebSocketTransport.swift */; };
 		BDD2E4E71FD36D9BB8ABCAA5 /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7FCA866244C4A360BF437EF /* Log.swift */; };
 		F56F0E278CDC83092561E5FE /* AgentState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6AE0B7A40C95C89390EF528 /* AgentState.swift */; };
-		F684A4653BDB673ED310FCC4 /* VoiceAgentApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DB6ACAF725A995AD1D60EB9 /* VoiceAgentApp.swift */; };
+		F684A4653BDB673ED310FCC4 /* StarCallApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DB6ACAF725A995AD1D60EB9 /* StarCallApp.swift */; };
 		FBCFC5562E5AEA2683316C67 /* AudioCaptureEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E11ED4761481F1561C6ADB9 /* AudioCaptureEngine.swift */; };
 /* End PBXBuildFile section */
 
@@ -31,12 +32,12 @@
 			containerPortal = 7F12F4B8EE9106EBD74D244F /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 3701476F3043D36BC6752ABE;
-			remoteInfo = VoiceAgent;
+			remoteInfo = StarCall;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		0DB6ACAF725A995AD1D60EB9 /* VoiceAgentApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAgentApp.swift; sourceTree = "<group>"; };
+		0DB6ACAF725A995AD1D60EB9 /* StarCallApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StarCallApp.swift; sourceTree = "<group>"; };
 		25BD88B540EBE4054BD3FFC8 /* JSONMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONMessages.swift; sourceTree = "<group>"; };
 		31A033E6F93C54238EB17CE0 /* ConversationSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationSession.swift; sourceTree = "<group>"; };
 		4E11ED4761481F1561C6ADB9 /* AudioCaptureEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureEngine.swift; sourceTree = "<group>"; };
@@ -44,25 +45,26 @@
 		5913BD087BB511E61ABBFC6E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6C8AA5D8957DB181816DE64B /* AudioPlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlaybackEngine.swift; sourceTree = "<group>"; };
 		7891EBB93162C30233EE2687 /* HTTPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPClient.swift; sourceTree = "<group>"; };
-		82ED9B919D4FA40E757026AB /* VoiceAgentUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = VoiceAgentUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		82ED9B919D4FA40E757026AB /* StarCallUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = StarCallUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9393300E8858C9462CA74446 /* ConversationViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationViewModel.swift; sourceTree = "<group>"; };
 		9F03886EA5F8A68167EDF78E /* WebSocketTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketTransport.swift; sourceTree = "<group>"; };
 		A07A031B58AE43530FD2E172 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B204A6D96B3F8B93E8CF2D58 /* AgentStatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatusCard.swift; sourceTree = "<group>"; };
 		BB8390DA9FFDC5A0286ABCB1 /* MeetingProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingProgressView.swift; sourceTree = "<group>"; };
-		C601F9A036D7CABE265AE897 /* NexusTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusTheme.swift; sourceTree = "<group>"; };
+		C601F9A036D7CABE265AE897 /* StarClTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StarClTheme.swift; sourceTree = "<group>"; };
 		C6AE0B7A40C95C89390EF528 /* AgentState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentState.swift; sourceTree = "<group>"; };
-		DA874247CE0042458BC4B95E /* VoiceAgent.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoiceAgent.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DA874247CE0042458BC4B95E /* StarCall.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StarCall.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DB89D456B6A789B8034F2627 /* AudioFrameHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioFrameHeader.swift; sourceTree = "<group>"; };
 		E7FCA866244C4A360BF437EF /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6789012345678 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
 		3DC98738A6C85AEECB3C6D77 = {
 			isa = PBXGroup;
 			children = (
-				B70B3BB85C67A92C6288D239 /* VoiceAgent */,
-				F7751D160A4187B7AECAD47A /* VoiceAgentUITests */,
+				B70B3BB85C67A92C6288D239 /* StarCall */,
+				F7751D160A4187B7AECAD47A /* StarCallUITests */,
 				416626B1F468ECB76467A190 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -70,8 +72,8 @@
 		416626B1F468ECB76467A190 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				DA874247CE0042458BC4B95E /* VoiceAgent.app */,
-				82ED9B919D4FA40E757026AB /* VoiceAgentUITests.xctest */,
+				DA874247CE0042458BC4B95E /* StarCall.app */,
+				82ED9B919D4FA40E757026AB /* StarCallUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -82,7 +84,7 @@
 				B204A6D96B3F8B93E8CF2D58 /* AgentStatusCard.swift */,
 				A07A031B58AE43530FD2E172 /* ContentView.swift */,
 				BB8390DA9FFDC5A0286ABCB1 /* MeetingProgressView.swift */,
-				C601F9A036D7CABE265AE897 /* NexusTheme.swift */,
+				C601F9A036D7CABE265AE897 /* StarClTheme.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -124,9 +126,10 @@
 			path = Audio;
 			sourceTree = "<group>";
 		};
-		B70B3BB85C67A92C6288D239 /* VoiceAgent */ = {
+		B70B3BB85C67A92C6288D239 /* StarCall */ = {
 			isa = PBXGroup;
 			children = (
+				A1B2C3D4E5F6789012345678 /* Assets.xcassets */,
 				B85329C9DF451189EF2D7807 /* App */,
 				A9D406426DCE52F241905CA0 /* Audio */,
 				8AF194CED6A694062C890398 /* Models */,
@@ -135,24 +138,24 @@
 				F8A43FB9C63ACC23D16B4C16 /* ViewModel */,
 				5ECE20FFC938B53837455D9F /* Views */,
 			);
-			path = VoiceAgent;
+			path = StarCall;
 			sourceTree = "<group>";
 		};
 		B85329C9DF451189EF2D7807 /* App */ = {
 			isa = PBXGroup;
 			children = (
 				5913BD087BB511E61ABBFC6E /* Info.plist */,
-				0DB6ACAF725A995AD1D60EB9 /* VoiceAgentApp.swift */,
+				0DB6ACAF725A995AD1D60EB9 /* StarCallApp.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
 		};
-		F7751D160A4187B7AECAD47A /* VoiceAgentUITests */ = {
+		F7751D160A4187B7AECAD47A /* StarCallUITests */ = {
 			isa = PBXGroup;
 			children = (
 				5357AB80AFF5AB0905C8E973 /* BackgroundColorUITests.swift */,
 			);
-			path = VoiceAgentUITests;
+			path = StarCallUITests;
 			sourceTree = "<group>";
 		};
 		F8A43FB9C63ACC23D16B4C16 /* ViewModel */ = {
@@ -165,27 +168,39 @@
 		};
 /* End PBXGroup section */
 
+/* Begin PBXResourcesBuildPhase section */
+		AABB0011223344556677AABB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CCDD0011223344556677CCDD /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXNativeTarget section */
-		3701476F3043D36BC6752ABE /* VoiceAgent */ = {
+		3701476F3043D36BC6752ABE /* StarCall */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = AFFCBC2B1EB540B7B9A65520 /* Build configuration list for PBXNativeTarget "VoiceAgent" */;
+			buildConfigurationList = AFFCBC2B1EB540B7B9A65520 /* Build configuration list for PBXNativeTarget "StarCall" */;
 			buildPhases = (
 				D73557B38906FB074486BD0B /* Sources */,
+				AABB0011223344556677AABB /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
-			name = VoiceAgent;
+			name = StarCall;
 			packageProductDependencies = (
 			);
-			productName = VoiceAgent;
-			productReference = DA874247CE0042458BC4B95E /* VoiceAgent.app */;
+			productName = StarCall;
+			productReference = DA874247CE0042458BC4B95E /* StarCall.app */;
 			productType = "com.apple.product-type.application";
 		};
-		FAD3496F297B765CDF4EC9D7 /* VoiceAgentUITests */ = {
+		FAD3496F297B765CDF4EC9D7 /* StarCallUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = E56C5D9B2AE108986D6A355F /* Build configuration list for PBXNativeTarget "VoiceAgentUITests" */;
+			buildConfigurationList = E56C5D9B2AE108986D6A355F /* Build configuration list for PBXNativeTarget "StarCallUITests" */;
 			buildPhases = (
 				6C8C8FD84308AD046F2CE3A2 /* Sources */,
 			);
@@ -194,11 +209,11 @@
 			dependencies = (
 				612F84331389E1F08B4584B0 /* PBXTargetDependency */,
 			);
-			name = VoiceAgentUITests;
+			name = StarCallUITests;
 			packageProductDependencies = (
 			);
-			productName = VoiceAgentUITests;
-			productReference = 82ED9B919D4FA40E757026AB /* VoiceAgentUITests.xctest */;
+			productName = StarCallUITests;
+			productReference = 82ED9B919D4FA40E757026AB /* StarCallUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -216,7 +231,7 @@
 					};
 				};
 			};
-			buildConfigurationList = F2A8DFE4EA6706D127E3D818 /* Build configuration list for PBXProject "VoiceAgent" */;
+			buildConfigurationList = F2A8DFE4EA6706D127E3D818 /* Build configuration list for PBXProject "StarCall" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -230,8 +245,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				3701476F3043D36BC6752ABE /* VoiceAgent */,
-				FAD3496F297B765CDF4EC9D7 /* VoiceAgentUITests */,
+				3701476F3043D36BC6752ABE /* StarCall */,
+				FAD3496F297B765CDF4EC9D7 /* StarCallUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -261,8 +276,8 @@
 				3D8FF2BF0227305D68837134 /* JSONMessages.swift in Sources */,
 				BDD2E4E71FD36D9BB8ABCAA5 /* Log.swift in Sources */,
 				0695CDA1E3FB66D864CC7B02 /* MeetingProgressView.swift in Sources */,
-				5849CD5E7555D960B5DD1FD8 /* NexusTheme.swift in Sources */,
-				F684A4653BDB673ED310FCC4 /* VoiceAgentApp.swift in Sources */,
+				5849CD5E7555D960B5DD1FD8 /* StarClTheme.swift in Sources */,
+				F684A4653BDB673ED310FCC4 /* StarCallApp.swift in Sources */,
 				B22567048B255ADF1BAAD7B6 /* WebSocketTransport.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -272,7 +287,7 @@
 /* Begin PBXTargetDependency section */
 		612F84331389E1F08B4584B0 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 3701476F3043D36BC6752ABE /* VoiceAgent */;
+			target = 3701476F3043D36BC6752ABE /* StarCall */;
 			targetProxy = 00C0F1BF0F32E6291CEA546A /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -286,12 +301,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = XYF26QHU7D;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = VoiceAgent/App/Info.plist;
+				INFOPLIST_FILE = StarCall/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.shijinglu.VoiceAgent;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shijinglu.StarCall;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
@@ -310,11 +325,11 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.shijinglu.VoiceAgent.UITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shijinglu.StarCall.UITests;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = VoiceAgent;
+				TEST_TARGET_NAME = StarCall;
 			};
 			name = Release;
 		};
@@ -329,11 +344,11 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.shijinglu.VoiceAgent.UITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shijinglu.StarCall.UITests;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = VoiceAgent;
+				TEST_TARGET_NAME = StarCall;
 			};
 			name = Debug;
 		};
@@ -345,12 +360,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = XYF26QHU7D;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = VoiceAgent/App/Info.plist;
+				INFOPLIST_FILE = StarCall/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.shijinglu.VoiceAgent;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shijinglu.StarCall;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
@@ -480,7 +495,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		AFFCBC2B1EB540B7B9A65520 /* Build configuration list for PBXNativeTarget "VoiceAgent" */ = {
+		AFFCBC2B1EB540B7B9A65520 /* Build configuration list for PBXNativeTarget "StarCall" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				BCE31CACF55674B7E556E58D /* Debug */,
@@ -489,7 +504,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		E56C5D9B2AE108986D6A355F /* Build configuration list for PBXNativeTarget "VoiceAgentUITests" */ = {
+		E56C5D9B2AE108986D6A355F /* Build configuration list for PBXNativeTarget "StarCallUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				89ECA6442BA4BFEFA5AB0F4D /* Debug */,
@@ -498,7 +513,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		F2A8DFE4EA6706D127E3D818 /* Build configuration list for PBXProject "VoiceAgent" */ = {
+		F2A8DFE4EA6706D127E3D818 /* Build configuration list for PBXProject "StarCall" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				ECC5BC24F2A26BF1531238D8 /* Debug */,

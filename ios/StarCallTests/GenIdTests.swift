@@ -1,6 +1,6 @@
 import AVFoundation
 import XCTest
-@testable import VoiceAgentLib
+@testable import StarCallLib
 
 /// Tests for RFC 1982 modular arithmetic gen_id staleness check.
 ///

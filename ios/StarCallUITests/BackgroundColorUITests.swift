@@ -19,9 +19,9 @@ final class BackgroundColorUITests: XCTestCase {
     }
 
     func testBackgroundFillsFullScreen() throws {
-        let nexusHeader = app.staticTexts["NEX"]
-        XCTAssertTrue(nexusHeader.waitForExistence(timeout: 5),
-                      "App should display the NEXUS header")
+        let starClHeader = app.staticTexts["Star"]
+        XCTAssertTrue(starClHeader.waitForExistence(timeout: 5),
+                      "App should display the StarCl header")
 
         // Use the app screenshot (excludes system status bar rendering).
         let screenshot = app.screenshot()
@@ -52,10 +52,10 @@ final class BackgroundColorUITests: XCTestCase {
             pixel.r == 0 && pixel.g == 0 && pixel.b == 0
         }
 
-        // Locate the NEXUS header element's position on screen to find the
+        // Locate the StarCl header element's position on screen to find the
         // safe area boundary. The region between the header and the top of
         // the app's rendering area should be the app's background color.
-        let headerFrame = nexusHeader.frame
+        let headerFrame = starClHeader.frame
         // Convert header top to pixel coordinates (approximate scale).
         let scale = CGFloat(width) / UIScreen.main.bounds.width
         let headerTopPixel = Int(headerFrame.minY * scale)

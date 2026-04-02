@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="48%" r="35%">
+      <stop offset="0%" stop-color="#2CC8A4" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#2CC8A4" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1024" height="1024" rx="224" fill="#0A0A10"/>
+
+  <!-- Ambient glow behind mic -->
+  <circle cx="512" cy="460" r="320" fill="url(#glow)"/>
+
+  <!-- Pulse rings -->
+  <circle cx="512" cy="460" r="220" fill="none" stroke="#2CC8A4" stroke-width="2.5" opacity="0.16"/>
+  <circle cx="512" cy="460" r="310" fill="none" stroke="#2CC8A4" stroke-width="2" opacity="0.10"/>
+  <circle cx="512" cy="460" r="400" fill="none" stroke="#2CC8A4" stroke-width="1.5" opacity="0.06"/>
+
+  <!-- Constellation lines connecting star nodes around the mic -->
+  <line x1="512" y1="180" x2="720" y2="280" stroke="#2CC8A4" stroke-width="2" opacity="0.28"/>
+  <line x1="720" y1="280" x2="760" y2="500" stroke="#2CC8A4" stroke-width="2" opacity="0.28"/>
+  <line x1="760" y1="500" x2="680" y2="690" stroke="#2CC8A4" stroke-width="2" opacity="0.22"/>
+  <line x1="680" y1="690" x2="512" y2="760" stroke="#2CC8A4" stroke-width="2" opacity="0.22"/>
+  <line x1="512" y1="760" x2="344" y2="690" stroke="#2CC8A4" stroke-width="2" opacity="0.22"/>
+  <line x1="344" y1="690" x2="264" y2="500" stroke="#2CC8A4" stroke-width="2" opacity="0.28"/>
+  <line x1="264" y1="500" x2="304" y2="280" stroke="#2CC8A4" stroke-width="2" opacity="0.28"/>
+  <line x1="304" y1="280" x2="512" y2="180" stroke="#2CC8A4" stroke-width="2" opacity="0.28"/>
+
+  <!-- Cross-connections to mic center area -->
+  <line x1="512" y1="180" x2="512" y2="310" stroke="#2CC8A4" stroke-width="1.5" opacity="0.18"/>
+  <line x1="720" y1="280" x2="590" y2="380" stroke="#2CC8A4" stroke-width="1.5" opacity="0.18"/>
+  <line x1="304" y1="280" x2="434" y2="380" stroke="#2CC8A4" stroke-width="1.5" opacity="0.18"/>
+  <line x1="760" y1="500" x2="600" y2="470" stroke="#2CC8A4" stroke-width="1.5" opacity="0.14"/>
+  <line x1="264" y1="500" x2="424" y2="470" stroke="#2CC8A4" stroke-width="1.5" opacity="0.14"/>
+
+  <!-- Constellation star nodes - 4-pointed stars -->
+  <!-- Top -->
+  <path d="M512 160 L519 177 L536 184 L519 191 L512 208 L505 191 L488 184 L505 177 Z" fill="#FFFFFF" opacity="0.9"/>
+  <!-- Top-right -->
+  <path d="M720 264 L726 277 L739 283 L726 289 L720 302 L714 289 L701 283 L714 277 Z" fill="#2CC8A4" opacity="0.85"/>
+  <!-- Right -->
+  <path d="M760 484 L766 497 L779 503 L766 509 L760 522 L754 509 L741 503 L754 497 Z" fill="#2CC8A4" opacity="0.75"/>
+  <!-- Bottom-right -->
+  <path d="M680 676 L685 687 L696 692 L685 697 L680 708 L675 697 L664 692 L675 687 Z" fill="#2CC8A4" opacity="0.65"/>
+  <!-- Bottom -->
+  <path d="M512 746 L517 757 L528 762 L517 767 L512 778 L507 767 L496 762 L507 757 Z" fill="#2CC8A4" opacity="0.65"/>
+  <!-- Bottom-left -->
+  <path d="M344 676 L349 687 L360 692 L349 697 L344 708 L339 697 L328 692 L339 687 Z" fill="#2CC8A4" opacity="0.65"/>
+  <!-- Left -->
+  <path d="M264 484 L270 497 L283 503 L270 509 L264 522 L258 509 L245 503 L258 497 Z" fill="#2CC8A4" opacity="0.75"/>
+  <!-- Top-left -->
+  <path d="M304 264 L310 277 L323 283 L310 289 L304 302 L298 289 L285 283 L298 277 Z" fill="#2CC8A4" opacity="0.85"/>
+
+  <!-- Large microphone - body (solid teal fill) -->
+  <rect x="440" y="290" width="144" height="260" rx="72" fill="#2CC8A4"/>
+
+  <!-- Lighter highlight on mic body -->
+  <rect x="460" y="300" width="40" height="180" rx="20" fill="#3DDDB7" opacity="0.3"/>
+
+  <!-- Mic grille lines -->
+  <line x1="470" y1="350" x2="554" y2="350" stroke="#0A0A10" stroke-width="2" opacity="0.25"/>
+  <line x1="465" y1="380" x2="559" y2="380" stroke="#0A0A10" stroke-width="2" opacity="0.25"/>
+  <line x1="465" y1="410" x2="559" y2="410" stroke="#0A0A10" stroke-width="2" opacity="0.25"/>
+  <line x1="465" y1="440" x2="559" y2="440" stroke="#0A0A10" stroke-width="2" opacity="0.25"/>
+  <line x1="470" y1="470" x2="554" y2="470" stroke="#0A0A10" stroke-width="2" opacity="0.25"/>
+
+  <!-- Mic arc -->
+  <path d="M382 490 Q382 620 512 620 Q642 620 642 490"
+        fill="none" stroke="#2CC8A4" stroke-width="8" stroke-linecap="round" opacity="0.9"/>
+
+  <!-- Mic stand -->
+  <line x1="512" y1="620" x2="512" y2="700" stroke="#2CC8A4" stroke-width="8" stroke-linecap="round" opacity="0.9"/>
+
+  <!-- Mic base -->
+  <line x1="442" y1="700" x2="582" y2="700" stroke="#2CC8A4" stroke-width="8" stroke-linecap="round" opacity="0.9"/>
+</svg>

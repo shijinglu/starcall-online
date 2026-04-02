@@ -8,7 +8,7 @@ final class HTTPClient {
     private static let HOME_WIFI   = URL(string: "http://192.168.1.156:8000")!
 
     /// Default server URL — change this to switch WiFi environment.
-    static let defaultServerURL = OFFICE_WIFI
+    static let defaultServerURL = HOME_WIFI
 
     private let urlSession: URLSession
     private let decoder: JSONDecoder

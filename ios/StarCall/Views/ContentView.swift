@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Main NEXUS conversation UI.
+/// Main StarCl conversation UI.
 ///
 /// Layout (top to bottom):
 /// - Header: App name + session tag
@@ -23,7 +23,7 @@ public struct ContentView: View {
             bottomBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(NexusTheme.background.ignoresSafeArea())
+        .background(StarClTheme.background.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .accessibilityIdentifier("mainContent")
         .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
@@ -37,12 +37,12 @@ public struct ContentView: View {
 
     private var headerView: some View {
         HStack {
-            // NEX*US* with teal accent
+            // Star*Cl* with teal accent
             HStack(spacing: 0) {
-                Text("NEX")
-                    .foregroundColor(NexusTheme.primaryText)
-                Text("US")
-                    .foregroundColor(NexusTheme.teal)
+                Text("Star")
+                    .foregroundColor(StarClTheme.primaryText)
+                Text("Cl")
+                    .foregroundColor(StarClTheme.teal)
             }
             .font(.system(size: 23, weight: .bold))
             .tracking(-1)
@@ -52,7 +52,7 @@ public struct ContentView: View {
             Text(sessionTagText)
                 .font(.system(size: 11))
                 .tracking(0.8)
-                .foregroundColor(NexusTheme.labelText)
+                .foregroundColor(StarClTheme.labelText)
                 .textCase(.uppercase)
         }
         .padding(.horizontal, 26)
@@ -78,7 +78,7 @@ public struct ContentView: View {
 
     private var dividerLine: some View {
         Rectangle()
-            .fill(NexusTheme.divider)
+            .fill(StarClTheme.divider)
             .frame(height: 1)
             .padding(.horizontal, 26)
             .padding(.top, 10)
@@ -127,19 +127,19 @@ public struct ContentView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text(greetingText)
                 .font(.system(size: 19, weight: .medium))
-                .foregroundColor(NexusTheme.primaryText)
+                .foregroundColor(StarClTheme.primaryText)
                 .tracking(-0.5)
                 .padding(.bottom, 3)
 
             Text("Tap the mic to start a session")
                 .font(.system(size: 13))
-                .foregroundColor(NexusTheme.labelText)
+                .foregroundColor(StarClTheme.labelText)
                 .padding(.bottom, 20)
 
             Text("RECENT SESSIONS")
                 .font(.system(size: 10))
                 .tracking(1.2)
-                .foregroundColor(NexusTheme.labelText)
+                .foregroundColor(StarClTheme.labelText)
                 .padding(.bottom, 8)
 
             // Placeholder recent sessions (no backend support yet)
@@ -181,21 +181,21 @@ public struct ContentView: View {
                 Spacer()
                 Text(time)
                     .font(.system(size: 11))
-                    .foregroundColor(NexusTheme.subtitleText)
+                    .foregroundColor(StarClTheme.subtitleText)
             }
             Text(preview)
                 .font(.system(size: 11))
-                .foregroundColor(NexusTheme.labelText)
+                .foregroundColor(StarClTheme.labelText)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(NexusTheme.cardBackground)
+        .background(StarClTheme.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(NexusTheme.cardBorder, lineWidth: 1)
+                .stroke(StarClTheme.cardBorder, lineWidth: 1)
         )
         .padding(.bottom, 4)
     }
@@ -236,7 +236,7 @@ public struct ContentView: View {
     private var bottomBar: some View {
         VStack(spacing: 0) {
             Rectangle()
-                .fill(NexusTheme.bottomBorder)
+                .fill(StarClTheme.bottomBorder)
                 .frame(height: 1)
 
             HStack(alignment: .center) {
@@ -265,13 +265,13 @@ public struct ContentView: View {
         Button(action: { viewModel.toggleMute() }) {
             ZStack {
                 Circle()
-                    .fill(NexusTheme.sideButtonBg)
+                    .fill(StarClTheme.sideButtonBg)
                     .frame(width: 44, height: 44)
-                    .overlay(Circle().stroke(NexusTheme.sideButtonBorder, lineWidth: 1))
+                    .overlay(Circle().stroke(StarClTheme.sideButtonBorder, lineWidth: 1))
 
                 Image(systemName: viewModel.isMuted ? "mic.slash" : "mic")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(viewModel.isMuted ? NexusTheme.muteRed : Color(hex: 0x666666))
+                    .foregroundColor(viewModel.isMuted ? StarClTheme.muteRed : Color(hex: 0x666666))
             }
         }
     }
@@ -289,11 +289,11 @@ public struct ContentView: View {
 
                     // Core circle
                     Circle()
-                        .fill(isSessionActive ? NexusTheme.micCoreActiveBg : NexusTheme.micCoreBg)
+                        .fill(isSessionActive ? StarClTheme.micCoreActiveBg : StarClTheme.micCoreBg)
                         .frame(width: 68, height: 68)
                         .overlay(
                             Circle()
-                                .stroke(NexusTheme.teal, lineWidth: 1.5)
+                                .stroke(StarClTheme.teal, lineWidth: 1.5)
                         )
                         .overlay(
                             Group {
@@ -304,12 +304,12 @@ public struct ContentView: View {
                                     // Muted mic icon
                                     Image(systemName: "mic.slash.fill")
                                         .font(.system(size: 20))
-                                        .foregroundColor(NexusTheme.muteRed)
+                                        .foregroundColor(StarClTheme.muteRed)
                                 } else {
                                     // Mic icon (idle)
                                     Image(systemName: "mic.fill")
                                         .font(.system(size: 20))
-                                        .foregroundColor(NexusTheme.teal)
+                                        .foregroundColor(StarClTheme.teal)
                                 }
                             }
                         )
@@ -320,7 +320,7 @@ public struct ContentView: View {
             Text(micStatusText)
                 .font(.system(size: 10))
                 .tracking(0.8)
-                .foregroundColor(isSessionActive ? NexusTheme.teal : NexusTheme.labelText)
+                .foregroundColor(isSessionActive ? StarClTheme.teal : StarClTheme.labelText)
         }
     }
 
@@ -362,16 +362,16 @@ public struct ContentView: View {
         }) {
             ZStack {
                 Circle()
-                    .fill(isSessionActive ? NexusTheme.sideButtonBg : NexusTheme.sideButtonBg)
+                    .fill(isSessionActive ? StarClTheme.sideButtonBg : StarClTheme.sideButtonBg)
                     .frame(width: 44, height: 44)
                     .overlay(Circle().stroke(
-                        isSessionActive ? NexusTheme.muteRed.opacity(0.6) : NexusTheme.sideButtonBorder,
+                        isSessionActive ? StarClTheme.muteRed.opacity(0.6) : StarClTheme.sideButtonBorder,
                         lineWidth: 1
                     ))
 
                 Image(systemName: "plus.message")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(isSessionActive ? NexusTheme.muteRed : Color(hex: 0x666666))
+                    .foregroundColor(isSessionActive ? StarClTheme.muteRed : Color(hex: 0x666666))
             }
         }
         .disabled(!isSessionActive && viewModel.sessionState != .connecting)
@@ -392,10 +392,10 @@ struct MessageRowView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Text(NexusTheme.speakerLabel(for: line.speaker))
+            Text(StarClTheme.speakerLabel(for: line.speaker))
                 .font(.system(size: 10, weight: .semibold))
                 .tracking(0.6)
-                .foregroundColor(NexusTheme.speakerColor(for: line.speaker))
+                .foregroundColor(StarClTheme.speakerColor(for: line.speaker))
                 .frame(width: 52, alignment: .leading)
                 .padding(.top, 3)
 
@@ -405,7 +405,7 @@ struct MessageRowView: View {
             } else {
                 Text(line.text)
                     .font(.system(size: 13))
-                    .foregroundColor(isMuted ? NexusTheme.mutedText : NexusTheme.messageText)
+                    .foregroundColor(isMuted ? StarClTheme.mutedText : StarClTheme.messageText)
                     .lineSpacing(4)
             }
         }
@@ -421,7 +421,7 @@ struct TypingDotsView: View {
         HStack(spacing: 4) {
             ForEach(0..<3, id: \.self) { index in
                 Circle()
-                    .fill(NexusTheme.mutedText)
+                    .fill(StarClTheme.mutedText)
                     .frame(width: 5, height: 5)
                     .scaleEffect(animating ? 1.2 : 1.0)
                     .opacity(animating ? 1.0 : 0.25)
@@ -446,13 +446,13 @@ struct PulseRingView: View {
     var body: some View {
         ZStack {
             Circle()
-                .stroke(NexusTheme.teal.opacity(0.19), lineWidth: 1.5)
+                .stroke(StarClTheme.teal.opacity(0.19), lineWidth: 1.5)
                 .frame(width: 68, height: 68)
                 .scaleEffect(animating ? 1.7 : 1.0)
                 .opacity(animating ? 0 : 1)
 
             Circle()
-                .stroke(NexusTheme.teal.opacity(0.08), lineWidth: 1)
+                .stroke(StarClTheme.teal.opacity(0.08), lineWidth: 1)
                 .frame(width: 68, height: 68)
                 .scaleEffect(animating ? 2.1 : 1.0)
                 .opacity(animating ? 0 : 0.7)
@@ -477,7 +477,7 @@ struct WaveBarsView: View {
         HStack(spacing: 2.5) {
             ForEach(0..<barCount, id: \.self) { index in
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(NexusTheme.teal)
+                    .fill(StarClTheme.teal)
                     .frame(width: 2.5, height: animating ? 16 : 4)
                     .animation(
                         .easeInOut(duration: 0.85)

@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Design tokens for the NEXUS dark UI theme.
-enum NexusTheme {
+/// Design tokens for the StarCl dark UI theme.
+enum StarClTheme {
 
     // MARK: - Background Colors
 
@@ -33,7 +33,7 @@ enum NexusTheme {
     // MARK: - Speaker Colors
 
     static let speakerYou = Color(hex: 0x5580FF)
-    static let speakerNexus = Color(hex: 0x2CC8A4)
+    static let speakerStarCl = Color(hex: 0x2CC8A4)
     static let speakerEllen = Color(hex: 0xE879A0)
     static let speakerShijing = Color(hex: 0xF5A623)
     static let speakerEva = Color(hex: 0xA78BFA)
@@ -44,8 +44,8 @@ enum NexusTheme {
         switch speaker.lowercased() {
         case "user", "you":
             return speakerYou
-        case "moderator", "nexus":
-            return speakerNexus
+        case "moderator", "starcl":
+            return speakerStarCl
         case "ellen":
             return speakerEllen
         case "shijing":
@@ -65,7 +65,7 @@ enum NexusTheme {
         case "user":
             return "YOU"
         case "moderator":
-            return "NEXUS"
+            return "STARCL"
         default:
             return speaker.uppercased()
         }
@@ -82,10 +82,10 @@ struct AgentDefinition {
     let name: String
 
     static let all: [AgentDefinition] = [
-        AgentDefinition(key: "shijing", initials: "SJ", ringColor: NexusTheme.speakerShijing, name: "Shijing"),
-        AgentDefinition(key: "eva", initials: "EV", ringColor: NexusTheme.speakerEva, name: "Eva"),
-        AgentDefinition(key: "ming", initials: "MG", ringColor: NexusTheme.speakerMing, name: "Ming"),
-        AgentDefinition(key: "ellen", initials: "EL", ringColor: NexusTheme.speakerEllen, name: "Ellen"),
+        AgentDefinition(key: "shijing", initials: "SJ", ringColor: StarClTheme.speakerShijing, name: "Shijing"),
+        AgentDefinition(key: "eva", initials: "EV", ringColor: StarClTheme.speakerEva, name: "Eva"),
+        AgentDefinition(key: "ming", initials: "MG", ringColor: StarClTheme.speakerMing, name: "Ming"),
+        AgentDefinition(key: "ellen", initials: "EL", ringColor: StarClTheme.speakerEllen, name: "Ellen"),
     ]
 
     static func definition(for key: String) -> AgentDefinition? {

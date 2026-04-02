@@ -10,7 +10,7 @@ build:
 
 ## run — build and launch the executable
 run: build
-	swift run VoiceAgent
+	swift run StarCall
 
 ## test — run unit tests
 test:

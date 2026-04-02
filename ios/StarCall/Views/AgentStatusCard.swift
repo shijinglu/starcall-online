@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Circular agent avatar with colored ring border, initials, and status dot.
 ///
-/// Used in the agent strip when agents are active. Matches the NEXUS design:
+/// Used in the agent strip when agents are active. Matches the StarCl design:
 /// - Dark circle background with colored ring border
 /// - Two-letter initials in the agent's color
 /// - Status dot: amber (thinking/dispatched), teal (done/speaking)
@@ -45,13 +45,13 @@ struct AgentAvatarView: View {
 
             Text(definition.name)
                 .font(.system(size: 11))
-                .foregroundColor(NexusTheme.agentLabel)
+                .foregroundColor(StarClTheme.agentLabel)
 
             // Agent comm text (intermediate reasoning, no TTS)
             if let commText = commText, !commText.isEmpty {
                 Text(commText)
                     .font(.system(size: 10).italic())
-                    .foregroundColor(NexusTheme.mutedText)
+                    .foregroundColor(StarClTheme.mutedText)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 100)
@@ -68,7 +68,7 @@ struct AgentAvatarView: View {
             .frame(width: 10, height: 10)
             .overlay(
                 Circle()
-                    .stroke(NexusTheme.background, lineWidth: 2)
+                    .stroke(StarClTheme.background, lineWidth: 2)
             )
             .opacity(isSpeaking ? speakingDotOpacity : 1.0)
             .animation(
@@ -82,13 +82,13 @@ struct AgentAvatarView: View {
     private var statusDotColor: Color {
         switch status {
         case .dispatched, .thinking:
-            return NexusTheme.amber
+            return StarClTheme.amber
         case .done:
-            return NexusTheme.teal
+            return StarClTheme.teal
         case .timeout:
-            return NexusTheme.amber
+            return StarClTheme.amber
         case .cancelled:
-            return NexusTheme.mutedText
+            return StarClTheme.mutedText
         }
     }
 
@@ -111,7 +111,7 @@ struct AgentStripView: View {
             Text("ACTIVE AGENTS")
                 .font(.system(size: 10))
                 .tracking(1.2)
-                .foregroundColor(NexusTheme.labelText)
+                .foregroundColor(StarClTheme.labelText)
 
             HStack(spacing: 20) {
                 ForEach(agents, id: \.definition.key) { agent in
@@ -146,7 +146,7 @@ struct AgentStripView: View {
 
 #Preview {
     ZStack {
-        NexusTheme.background.ignoresSafeArea()
+        StarClTheme.background.ignoresSafeArea()
 
         AgentStripView(
             agents: [

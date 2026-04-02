@@ -1,4 +1,4 @@
-name: VoiceAgent
+name: StarCall
 options:
   bundleIdPrefix: com.shijinglu
   deploymentTarget:
@@ -6,48 +6,48 @@ options:
   xcodeVersion: "16.0"
 
 targets:
-  VoiceAgent:
+  StarCall:
     type: application
     platform: iOS
     sources:
-      - path: VoiceAgent
+      - path: StarCall
     info:
-      path: VoiceAgent/App/Info.plist
+      path: StarCall/App/Info.plist
       properties:
         UILaunchScreen: {}
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.shijinglu.VoiceAgent
-        INFOPLIST_FILE: VoiceAgent/App/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.shijinglu.StarCall
+        INFOPLIST_FILE: StarCall/App/Info.plist
         SWIFT_VERSION: "5.9"
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: false
     dependencies: []
 
-  VoiceAgentUITests:
+  StarCallUITests:
     type: bundle.ui-testing
     platform: iOS
     sources:
-      - path: VoiceAgentUITests
+      - path: StarCallUITests
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.shijinglu.VoiceAgent.UITests
+        PRODUCT_BUNDLE_IDENTIFIER: com.shijinglu.StarCall.UITests
         SWIFT_VERSION: "5.9"
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: true
-        TEST_TARGET_NAME: VoiceAgent
+        TEST_TARGET_NAME: StarCall
     dependencies:
-      - target: VoiceAgent
+      - target: StarCall
 
 schemes:
-  VoiceAgent:
+  StarCall:
     build:
       targets:
-        VoiceAgent: all
-        VoiceAgentUITests: [test]
+        StarCall: all
+        StarCallUITests: [test]
     run:
       config: Debug
     test:
       config: Debug
       targets:
-        - VoiceAgentUITests
+        - StarCallUITests

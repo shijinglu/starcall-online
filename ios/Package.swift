@@ -2,23 +2,23 @@
 import PackageDescription
 
 let package = Package(
-    name: "VoiceAgent",
+    name: "StarCall",
     platforms: [
         .iOS(.v17),
         .macOS(.v14)
     ],
     products: [
         .library(
-            name: "VoiceAgentLib",
-            targets: ["VoiceAgentLib"]
+            name: "StarCallLib",
+            targets: ["StarCallLib"]
         )
     ],
     targets: [
         // Library target: all source code except the @main entry point.
         .target(
-            name: "VoiceAgentLib",
+            name: "StarCallLib",
             dependencies: [],
-            path: "VoiceAgent",
+            path: "StarCall",
             exclude: ["App"],
             linkerSettings: [
                 .linkedFramework("AVFoundation")
@@ -26,18 +26,18 @@ let package = Package(
         ),
         // Executable target: the SwiftUI @main entry point.
         .executableTarget(
-            name: "VoiceAgent",
-            dependencies: ["VoiceAgentLib"],
-            path: "VoiceAgent/App",
+            name: "StarCall",
+            dependencies: ["StarCallLib"],
+            path: "StarCall/App",
             linkerSettings: [
                 .linkedFramework("AVFoundation")
             ]
         ),
         // Test target: tests against the library.
         .testTarget(
-            name: "VoiceAgentTests",
-            dependencies: ["VoiceAgentLib"],
-            path: "VoiceAgentTests"
+            name: "StarCallTests",
+            dependencies: ["StarCallLib"],
+            path: "StarCallTests"
         )
     ]
 )

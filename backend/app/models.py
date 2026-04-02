@@ -6,6 +6,7 @@ import asyncio
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal, Optional
 
 AgentStatus = Literal["active", "idle", "cancelled", "timeout"]
@@ -110,3 +111,4 @@ class AgentRegistryEntry:
     system_prompt: str
     tool_set: list[str]
     subagents: dict = field(default_factory=dict)
+    agent_dir: Path | None = None

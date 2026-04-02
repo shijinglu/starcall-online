@@ -20,7 +20,6 @@ from claude_agent_sdk import (
 )
 
 from app.config import BACKEND_DIR, CLAUDE_MODEL, MAX_AGENT_BUDGET_USD, MAX_TOOL_ROUNDS
-from app.tools.mcp_servers import AGENT_MCP_SERVERS
 
 if TYPE_CHECKING:
     from app.models import AgentSession, ConversationSession
@@ -61,20 +60,15 @@ class SDKAgentRunner:
         if entry is None:
             raise ValueError(f"Unknown agent: {agent_session.agent_name}")
 
-        mcp_server = AGENT_MCP_SERVERS[agent_session.agent_name]
-        server_key = f"{agent_session.agent_name}_tools"
-
         options = ClaudeAgentOptions(
             model=CLAUDE_MODEL,
             system_prompt=entry.system_prompt,
-            mcp_servers={server_key: mcp_server},
-            allowed_tools=[f"mcp__{server_key}__*"],
             max_turns=MAX_TOOL_ROUNDS,
             max_budget_usd=MAX_AGENT_BUDGET_USD,
             permission_mode="bypassPermissions",
             resume=agent_session.sdk_session_id,
             setting_sources=["project"],
-            cwd=str(BACKEND_DIR),
+            cwd=str(entry.agent_dir) if entry.agent_dir else str(BACKEND_DIR),
             agents=entry.subagents if entry.subagents else None,
         )
 

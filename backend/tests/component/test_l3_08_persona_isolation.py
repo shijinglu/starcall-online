@@ -11,7 +11,6 @@ import pytest
 
 from app.config import ANTHROPIC_API_KEY
 from app.registry import AgentRegistry
-from app.tools.mcp_servers import AGENT_MCP_SERVERS
 
 pytestmark = pytest.mark.skipif(
     not ANTHROPIC_API_KEY, reason="ANTHROPIC_API_KEY not set"
@@ -123,9 +122,8 @@ async def test_agent_persona_tone(client, registry, agent_name):
         ), f"Ellen should address user as 'boss'. Got: {full_text[:200]}"
 
 
-def test_mcp_servers_cover_all_agents():
-    """Verify AGENT_MCP_SERVERS has entries for all 4 agents."""
-    assert "ellen" in AGENT_MCP_SERVERS
-    assert "shijing" in AGENT_MCP_SERVERS
-    assert "eva" in AGENT_MCP_SERVERS
-    assert "ming" in AGENT_MCP_SERVERS
+def test_all_agents_registered():
+    """Verify all 4 agents are registered."""
+    registry = AgentRegistry()
+    for name in ("ellen", "shijing", "eva", "ming"):
+        assert name in registry, f"{name} not in registry"

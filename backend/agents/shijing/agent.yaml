@@ -1,0 +1,8 @@
+name: shijing
+description: "User risk analyst — user profile and journey"
+voice_id: en-US-Journey-D
+speaker_id: 2
+tool_set:
+  - user_profile_read
+  - user_journey_read
+  - risk_score_read

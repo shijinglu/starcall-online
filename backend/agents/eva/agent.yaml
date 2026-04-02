@@ -1,0 +1,8 @@
+name: eva
+description: "Financial analyst — transactions and bank data"
+voice_id: en-US-Journey-O
+speaker_id: 3
+tool_set:
+  - transaction_read
+  - bank_data_read
+  - chargeback_read

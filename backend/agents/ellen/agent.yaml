@@ -1,0 +1,8 @@
+name: ellen
+description: "Personal assistant — calendar, email, tasks"
+voice_id: en-US-Journey-F
+speaker_id: 1
+tool_set:
+  - calendar_read
+  - email_send
+  - task_list

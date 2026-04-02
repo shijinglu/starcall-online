@@ -32,29 +32,37 @@ final class AudioCaptureEngine {
         }
     }
 
-    /// Whether the system is currently playing back audio (used for barge-in detection and noise floor updates).
+    /// Estimated time when playback will finish. Set by ConversationSession when
+    /// audio chunks arrive. Used for barge-in gating and noise floor updates.
     /// Thread-safe: accessed from audio render, WebSocket, and main threads.
-    var isPlaying: Bool {
-        get { isPlayingLock.withLock { _isPlaying } }
-        set {
-            let oldValue = isPlayingLock.withLock {
-                let old = _isPlaying
-                _isPlaying = newValue
-                return old
-            }
-            if oldValue != newValue {
-                if newValue {
-                    playbackStartTime = ProcessInfo.processInfo.systemUptime
-                } else {
-                    playbackStartTime = 0
-                }
-                let threadName = Thread.current.isMainThread ? "main" : (Thread.current.name ?? "bg-\(Thread.current)")
-                Log.info("DIAG-ISPLAYING: \(oldValue)->\(newValue) thread=\(threadName)", tag: "AudioCaptureEngine")
-            }
-        }
+    var playbackEndTime: CFAbsoluteTime {
+        get { playbackEndTimeLock.withLock { _playbackEndTime } }
+        set { playbackEndTimeLock.withLock { _playbackEndTime = newValue } }
     }
-    private var _isPlaying: Bool = false
-    private let isPlayingLock = NSLock()
+    private var _playbackEndTime: CFAbsoluteTime = 0
+    private let playbackEndTimeLock = NSLock()
+
+    /// Whether playback is expected to be active based on the time-based gate.
+    var isPlaybackExpected: Bool {
+        CFAbsoluteTimeGetCurrent() < playbackEndTime
+    }
+
+    /// Called when new audio chunks arrive for playback. Extends the playback gate.
+    func notifyPlaybackChunk(durationSeconds: Double) {
+        let now = CFAbsoluteTimeGetCurrent()
+        let currentEnd = playbackEndTime
+        if currentEnd < now {
+            // New playback starting — record start time for grace period
+            playbackStartTime = ProcessInfo.processInfo.systemUptime
+        }
+        playbackEndTime = max(currentEnd, now) + durationSeconds
+    }
+
+    /// Called when playback is flushed (barge-in). Resets all playback tracking.
+    func notifyPlaybackFlushed() {
+        playbackEndTime = 0
+        playbackStartTime = 0
+    }
 
     // MARK: - Noise Floor / Barge-In Configuration
 
@@ -114,7 +122,7 @@ final class AudioCaptureEngine {
     func configureAudioSession() throws {
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
         try session.setActive(true)
         logAudioRoute()
         #endif
@@ -222,7 +230,7 @@ final class AudioCaptureEngine {
         while accumulationBuffer.count >= Self.chunkSize {
             let chunk = accumulationBuffer.prefix(Self.chunkSize)
             accumulationBuffer.removeFirst(Self.chunkSize)
-            processChunk(Data(chunk), isPlaying: isPlaying)
+            processChunk(Data(chunk))
         }
     }
 
@@ -236,7 +244,8 @@ final class AudioCaptureEngine {
     }
 
     /// Process a 100ms PCM chunk: update noise floor, detect barge-in, emit to delegate.
-    func processChunk(_ pcm16: Data, isPlaying: Bool) {
+    func processChunk(_ pcm16: Data) {
+        let isPlaying = isPlaybackExpected
         let samples = pcm16.withUnsafeBytes { rawBuffer -> [Int16] in
             guard let baseAddress = rawBuffer.baseAddress else { return [] }
             let bound = baseAddress.bindMemory(to: Int16.self, capacity: rawBuffer.count / MemoryLayout<Int16>.size)

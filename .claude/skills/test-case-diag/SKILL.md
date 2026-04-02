@@ -78,7 +78,18 @@ This script checks whether the backend is running and starts it if needed. Wait 
 
 Before running the test, **always** rebuild the iOS app and deploy it to the **physical device** (not the simulator). This ensures the test runs against the latest code on real hardware.
 
-Use computer-use mcp to bring xcode front and 
+### Preferred way: use devicectl + xcrun
+
+```bash
+xcrun devicectl device install app --device 'iPhone 3G' /Users/shijinglu/Library/Developer/Xcode/DerivedData/StarCall-gddnadvbmirjibdgyairnhyzddqj/Build/Products/Debug-iphoneos/StarCall.app 2>&1
+```
+
+AND then
+```bash
+xcrun devicectl device process launch --device 'iPhone 3G' com.shijinglu.StarCall 2>&1
+```
+
+### Alternative way: Use computer-use mcp to bring xcode front and 
 1. Click the Stop button to stop current session
 2. Click the Run (▶) button to re-build and re-deploy the app.
 
@@ -127,7 +138,13 @@ Read both files.
 Read the tail of `backend/logs/app.log` (last 300 lines) for additional context like errors, warnings, or agent dispatch details.
 
 ### 6d. Mobile logs
-If mobile-mcp is available, attempt to capture device logs. If not accessible, note this in the report and proceed without them.
+
+Try fetching mobile logs with devicectl, for example: 
+`xcrun devicectl device copy from --device 'iPhone 3G' --domain-type appDataContainer --domain-identifier com.shijinglu.StarCall --source Documents/Logs/StarCall.log --destination /tmp/StarCall_diag.log`
+
+If we are running in simulator, and if mobile-mcp is available, attempt to capture device logs with mobile-mcp. 
+
+If none accessible, note this in the report and proceed without them.
 
 ---
 
@@ -180,6 +197,10 @@ Build a turn-by-turn comparison table:
 - Any backend exceptions in the logs?
 - Any TTS failures?
 - Any unexpected agent behavior?
+
+### 6f. UI Freezes or glitches
+- Is the MAIN THREAD BLOCKED?
+- Are there any diagnostic logs showing UI errors or warnings?
 
 ---
 

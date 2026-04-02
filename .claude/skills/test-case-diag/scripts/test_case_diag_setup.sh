@@ -5,6 +5,7 @@ GIT_ROOT=$(git root)
 BACKEND_DIR="$GIT_ROOT/backend"
 HEALTH_URL="http://localhost:8000/health"
 
+echo '' >  /tmp/StarCall_diag.log
 echo '' > "$BACKEND_DIR/logs/app.log"
 echo "Checking backend health at $HEALTH_URL ..."
 

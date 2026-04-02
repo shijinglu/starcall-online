@@ -77,16 +77,11 @@ final class ConversationSession: NSObject {
     /// Track chunks sent to backend during playback vs silence.
     private var diagChunksSentDuringPlayback: Int = 0
     private var diagChunksSentDuringSilence: Int = 0
-    /// DIAG: track gate transitions and playback frame counts
-    private var diagLastIsPlayingState: Bool = false
+    /// DIAG: track gate transitions
+    private var diagLastGateState: Bool = false
     private var diagBinaryFramesReceived: Int = 0
-    private var diagSpeakerFinishedCount: Int = 0
-    /// DIAG: timestamp when gate last closed (isPlaying became true)
-    private var diagGateClosedTime: CFAbsoluteTime = 0
     /// DIAG: timestamp of last binary frame received
     private var diagLastBinaryFrameTime: CFAbsoluteTime = 0
-    /// DIAG: consecutive chunks dropped while gate stuck
-    private var diagConsecutiveDrops: Int = 0
     /// Tracks the last speaker reported to the delegate to avoid redundant UI updates.
     private var lastReportedPlayingSpeaker: UInt8? = nil
 
@@ -153,6 +148,16 @@ final class ConversationSession: NSObject {
                 throw error
             }
 
+            // Enable hardware voice processing (AEC) on the input node.
+            // This is critical — without it, the mic picks up TTS playback,
+            // causing false barge-in (design doc section 1A).
+            do {
+                try sharedAudioEngine.inputNode.setVoiceProcessingEnabled(true)
+                Log.info("Voice processing (AEC) enabled on input node", tag: "ConversationSession")
+            } catch {
+                Log.error("Failed to enable voice processing: \(error)", tag: "ConversationSession")
+            }
+
             // Start the shared AVAudioEngine once — both capture and playback
             // use this single engine so hardware AEC can cancel speaker bleed.
             do {
@@ -163,29 +168,6 @@ final class ConversationSession: NSObject {
             } catch {
                 Log.error("Shared audio engine start failed: \(error)", tag: "ConversationSession")
                 throw error
-            }
-
-            // When a speaker finishes playing, update isPlaying so the audio
-            // gate re-opens and mic audio flows to Gemini again.
-            playbackEngine.onSpeakerFinished = { [weak self] speakerId in
-                guard let self = self else { return }
-                let wasPlaying = self.audioCaptureEngine.isPlaying
-                let isNowPlaying = self.playbackEngine.isAnyPlaying
-                self.audioCaptureEngine.isPlaying = isNowPlaying
-                self.diagSpeakerFinishedCount += 1
-                let threadName = Thread.current.isMainThread ? "main" : (Thread.current.name ?? "bg-\(Thread.current)")
-                if wasPlaying != isNowPlaying {
-                    let gateDuration = self.diagGateClosedTime > 0 ? CFAbsoluteTimeGetCurrent() - self.diagGateClosedTime : 0
-                    Log.info("DIAG-GATE: onSpeakerFinished speaker=\(speakerId) isPlaying \(wasPlaying)->\(isNowPlaying) callbacks=\(self.diagSpeakerFinishedCount) skipped=\(self.diagChunksSentDuringPlayback) sent=\(self.diagChunksSentDuringSilence) gateDuration=\(String(format: "%.2f", gateDuration))s thread=\(threadName)", tag: "ConversationSession")
-                    if !isNowPlaying {
-                        self.diagConsecutiveDrops = 0
-                    }
-                } else if wasPlaying && isNowPlaying {
-                    // Gate still closed after callback — log periodically to track stuck state
-                    if self.diagSpeakerFinishedCount % 10 == 0 {
-                        Log.info("DIAG-GATE: onSpeakerFinished speaker=\(speakerId) STILL PLAYING callbacks=\(self.diagSpeakerFinishedCount) thread=\(threadName)", tag: "ConversationSession")
-                    }
-                }
             }
 
             state = .active
@@ -202,25 +184,31 @@ final class ConversationSession: NSObject {
 
     /// Stop the current conversation session.
     func stop() async {
-        Log.info("DIAG: stop() called, current state=\(state) thread=\(Thread.current)", tag: "ConversationSession")
+        let isMain = Thread.current.isMainThread
+        let callerThread = isMain ? "MAIN" : (Thread.current.name ?? "bg-\(Unmanaged.passUnretained(Thread.current).toOpaque())")
+        Log.info("DIAG-STOP: stop() ENTERED state=\(state) callerThread=\(callerThread) isMainThread=\(isMain)", tag: "ConversationSession")
         state = .stopped
 
         // Stop audio capture (removes input tap).
         audioCaptureEngine.stopCapture()
+        Log.info("DIAG-STOP: capture stopped", tag: "ConversationSession")
 
         // Send stop control message.
         transport.sendJSON(["type": "control", "action": "stop"])
 
         // Close WebSocket.
         transport.disconnect()
+        Log.info("DIAG-STOP: WebSocket disconnected", tag: "ConversationSession")
 
         // Stop playback (clears queues and player nodes).
+        Log.info("DIAG-STOP: BEFORE flushAllAndStop callerThread=\(callerThread)", tag: "ConversationSession")
         playbackEngine.flushAllAndStop(newGen: currentGen)
+        Log.info("DIAG-STOP: AFTER flushAllAndStop", tag: "ConversationSession")
         playbackEngine.stop()
 
         // Stop the shared audio engine last.
         sharedAudioEngine.stop()
-        Log.info("Shared AVAudioEngine stopped", tag: "ConversationSession")
+        Log.info("DIAG-STOP: all engines stopped", tag: "ConversationSession")
 
         // Delete session on the backend.
         if let sid = sessionId {
@@ -260,20 +248,26 @@ final class ConversationSession: NSObject {
             return
         }
 
+        let bargeinStart = CFAbsoluteTimeGetCurrent()
+        let isMain = Thread.current.isMainThread
+        let callerThread = isMain ? "MAIN" : (Thread.current.name ?? "bg-\(Unmanaged.passUnretained(Thread.current).toOpaque())")
+        Log.info("DIAG-BARGEIN: START currentGen=\(currentGen) callerThread=\(callerThread) isMainThread=\(isMain)", tag: "ConversationSession")
+
         // Don't bump currentGen locally — the server is authoritative on gen_id.
-        // Bumping here causes gen desync: iOS discards all new backend audio as
-        // "stale" because the backend never saw the interrupt or hasn't incremented yet.
-        // Instead, just flush current playback and send the interrupt request.
-        // The server will respond with {"type":"interruption","gen_id":N} and
-        // handleInterruptionConfirmed() will update currentGen.
-        Log.info("DIAG: handleBargein firing, currentGen=\(currentGen) (not incrementing) thread=\(Thread.current)", tag: "ConversationSession")
+        Log.info("DIAG-BARGEIN: BEFORE flushAllAndStop callerThread=\(callerThread)", tag: "ConversationSession")
         playbackEngine.flushAllAndStop(newGen: currentGen)
-        audioCaptureEngine.isPlaying = false
+        let afterFlush = CFAbsoluteTimeGetCurrent()
+        let flushMs = (afterFlush - bargeinStart) * 1000
+        Log.info("DIAG-BARGEIN: AFTER flushAllAndStop took=\(String(format: "%.1f", flushMs))ms callerThread=\(callerThread)", tag: "ConversationSession")
+
+        audioCaptureEngine.notifyPlaybackFlushed()
         gateEndTime = 0  // Immediately reopen the time-based gate on barge-in
         transport.sendJSON(["type": "interrupt", "mode": "cancel_all"])
         fireHaptic()
         delegate?.sessionDidReceiveBargeIn(currentGenId: Int(currentGen))
-        Log.info("DIAG: handleBargein complete, isPlaying reset to false, gate reopened", tag: "ConversationSession")
+
+        let totalMs = (CFAbsoluteTimeGetCurrent() - bargeinStart) * 1000
+        Log.info("DIAG-BARGEIN: DONE total=\(String(format: "%.1f", totalMs))ms flush=\(String(format: "%.1f", flushMs))ms callerThread=\(callerThread)", tag: "ConversationSession")
     }
 
     /// Handle server-side interruption confirmation.
@@ -286,14 +280,21 @@ final class ConversationSession: NSObject {
 
     /// Handle a server interruption JSON message.
     func handleServerInterruption(genId: UInt8) {
-        Log.info("DIAG: handleServerInterruption genId=\(genId) currentGen=\(currentGen)", tag: "ConversationSession")
+        let start = CFAbsoluteTimeGetCurrent()
+        let isMain = Thread.current.isMainThread
+        let callerThread = isMain ? "MAIN" : (Thread.current.name ?? "bg-\(Unmanaged.passUnretained(Thread.current).toOpaque())")
+        Log.info("DIAG-INTERRUPT: handleServerInterruption START genId=\(genId) currentGen=\(currentGen) callerThread=\(callerThread)", tag: "ConversationSession")
         handleInterruptionConfirmed(serverGenId: genId)
-        // Flush playback with server's gen_id to discard stale audio.
+        Log.info("DIAG-INTERRUPT: BEFORE flushAllAndStop callerThread=\(callerThread)", tag: "ConversationSession")
         playbackEngine.flushAllAndStop(newGen: currentGen)
-        audioCaptureEngine.isPlaying = false
+        let flushMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        Log.info("DIAG-INTERRUPT: AFTER flushAllAndStop took=\(String(format: "%.1f", flushMs))ms", tag: "ConversationSession")
+        audioCaptureEngine.notifyPlaybackFlushed()
         gateEndTime = 0  // Immediately reopen the time-based gate
         fireHaptic()
         delegate?.sessionDidReceiveBargeIn(currentGenId: Int(currentGen))
+        let totalMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        Log.info("DIAG-INTERRUPT: handleServerInterruption DONE took=\(String(format: "%.1f", totalMs))ms callerThread=\(callerThread)", tag: "ConversationSession")
     }
 
     // MARK: - Mute
@@ -308,7 +309,7 @@ final class ConversationSession: NSObject {
     /// Send a skip_speaker interrupt for the currently playing agent.
     func sendSkipSpeaker() {
         transport.sendJSON(["type": "interrupt", "mode": "skip_speaker"])
-        if let speakerId = playbackEngine.currentlyPlayingSpeaker {
+        if let speakerId = playbackEngine.currentMeetingSpeaker {
             playbackEngine.cancelStream(speakerId: speakerId)
         }
     }
@@ -412,13 +413,14 @@ final class ConversationSession: NSObject {
 extension ConversationSession: WebSocketTransportDelegate {
 
     func transportDidReceiveBinaryFrame(_ data: Data) {
+        let frameStart = CFAbsoluteTimeGetCurrent()
         guard let header = AudioFrameHeader(data: data) else {
             Log.warning("DIAG: transportDidReceiveBinaryFrame invalid header, dataSize=\(data.count)", tag: "ConversationSession")
             return
         }
         let pcm = Data(data.dropFirst(AudioFrameHeader.size))
         diagBinaryFramesReceived += 1
-        diagLastBinaryFrameTime = CFAbsoluteTimeGetCurrent()
+        diagLastBinaryFrameTime = frameStart
 
         // Extend the time-based audio gate: each incoming audio chunk adds its
         // duration to the gate end time so the gate stays closed until all
@@ -428,22 +430,22 @@ extension ConversationSession: WebSocketTransportDelegate {
         let now = CFAbsoluteTimeGetCurrent()
         gateEndTime = max(gateEndTime, now) + chunkDuration
 
-        let wasPlaying = audioCaptureEngine.isPlaying
+        // Notify capture engine about playback for barge-in gating (time-based).
+        audioCaptureEngine.notifyPlaybackChunk(durationSeconds: chunkDuration)
         playbackEngine.receiveAudioFrame(header: header, pcm: pcm)
 
-        // Update playing state for the capture engine's barge-in detection.
-        let isNowPlaying = playbackEngine.isAnyPlaying
-        audioCaptureEngine.isPlaying = isNowPlaying
-        if wasPlaying != isNowPlaying {
-            Log.info("DIAG-GATE: receiveBinaryFrame isPlaying \(wasPlaying)->\(isNowPlaying) binaryFrames=\(diagBinaryFramesReceived) speaker=\(header.speakerId) pcmBytes=\(pcm.count)", tag: "ConversationSession")
-        }
         if diagBinaryFramesReceived == 1 || diagBinaryFramesReceived % 50 == 0 {
-            Log.info("DIAG-GATE: receiveBinaryFrame #\(diagBinaryFramesReceived) speaker=\(header.speakerId) isPlaying=\(isNowPlaying) pcmBytes=\(pcm.count)", tag: "ConversationSession")
+            Log.info("DIAG-GATE: receiveBinaryFrame #\(diagBinaryFramesReceived) speaker=\(header.speakerId) pcmBytes=\(pcm.count)", tag: "ConversationSession")
         }
-        let newSpeaker = playbackEngine.currentlyPlayingSpeaker
+        // Track speaker from frame header (no node.isPlaying polling).
+        let newSpeaker = header.speakerId
         if newSpeaker != lastReportedPlayingSpeaker {
             lastReportedPlayingSpeaker = newSpeaker
             delegate?.sessionDidUpdatePlayingSpeaker(newSpeaker)
+        }
+        let frameMs = (CFAbsoluteTimeGetCurrent() - frameStart) * 1000
+        if frameMs > 5.0 {
+            Log.warning("DIAG-FREEZE: transportDidReceiveBinaryFrame SLOW frame#\(diagBinaryFramesReceived) took=\(String(format: "%.1f", frameMs))ms speaker=\(header.speakerId)", tag: "ConversationSession")
         }
     }
 
@@ -507,8 +509,11 @@ extension ConversationSession: AudioCaptureEngineDelegate {
         // so any RMS spike is speaker bleed, not intentional speech.
         // TTS playback should continue uninterrupted.
         guard !isMuted else { return }
-        Log.info("DIAG-ECHO: LOCAL_BARGEIN fired gen=\(currentGen)", tag: "ConversationSession")
+        let isMain = Thread.current.isMainThread
+        let callerThread = isMain ? "MAIN" : (Thread.current.name ?? "bg-\(Unmanaged.passUnretained(Thread.current).toOpaque())")
+        Log.info("DIAG-BARGEIN: audioCaptureDidDetectBargein ENTERED gen=\(currentGen) callerThread=\(callerThread) isMainThread=\(isMain)", tag: "ConversationSession")
         handleBargein()
+        Log.info("DIAG-BARGEIN: audioCaptureDidDetectBargein RETURNED callerThread=\(callerThread)", tag: "ConversationSession")
     }
 
     func audioCaptureDidProduceChunk(_ data: Data) {
@@ -527,19 +532,13 @@ extension ConversationSession: AudioCaptureEngineDelegate {
         let isGateClosed = now < gateEndTime + gateMargin
 
         // DIAG: log gate state transitions
-        if isGateClosed != diagLastIsPlayingState {
-            if isGateClosed {
-                diagGateClosedTime = now
-                diagConsecutiveDrops = 0
-            }
-            let gateDuration = (!isGateClosed && diagGateClosedTime > 0) ? now - diagGateClosedTime : 0
-            Log.info("DIAG-GATE: audio gate \(isGateClosed ? "CLOSED (dropping chunks)" : "OPEN (sending chunks)") skipped=\(diagChunksSentDuringPlayback) sent=\(diagChunksSentDuringSilence) gateRemaining=\(String(format: "%.2f", max(0, gateEndTime - now)))s gateDuration=\(String(format: "%.2f", gateDuration))s", tag: "ConversationSession")
-            diagLastIsPlayingState = isGateClosed
+        if isGateClosed != diagLastGateState {
+            Log.info("DIAG-GATE: audio gate \(isGateClosed ? "CLOSED (dropping chunks)" : "OPEN (sending chunks)") skipped=\(diagChunksSentDuringPlayback) sent=\(diagChunksSentDuringSilence) gateRemaining=\(String(format: "%.2f", max(0, gateEndTime - now)))s", tag: "ConversationSession")
+            diagLastGateState = isGateClosed
         }
 
         if isGateClosed {
             diagChunksSentDuringPlayback += 1
-            diagConsecutiveDrops += 1
             if diagChunksSentDuringPlayback == 1 || diagChunksSentDuringPlayback % 100 == 0 {
                 Log.info("DIAG-GATE: chunk DROPPED #\(diagChunksSentDuringPlayback) gateRemaining=\(String(format: "%.2f", gateEndTime - now))s", tag: "ConversationSession")
             }

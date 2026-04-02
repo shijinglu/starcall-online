@@ -1,9 +1,6 @@
 import AVFoundation
 import Foundation
 
-/// Callback when a speaker finishes playing all queued audio.
-typealias SpeakerFinishedCallback = (UInt8) -> Void
-
 /// Manages per-speaker audio playback with gen_id filtering, meeting mode,
 /// and barge-in flush support.
 final class AudioPlaybackEngine {
@@ -24,9 +21,6 @@ final class AudioPlaybackEngine {
     private(set) var meetingOrder: [UInt8] = []
     /// The speaker currently playing in meeting mode.
     private(set) var currentMeetingSpeaker: UInt8? = nil
-
-    /// Callback fired when a speaker finishes all queued audio.
-    var onSpeakerFinished: SpeakerFinishedCallback?
 
     /// The AVAudioEngine used for playback.
     /// When a shared engine is provided (ownsEngine=false), this engine is also
@@ -151,14 +145,7 @@ final class AudioPlaybackEngine {
             Log.info("DIAG-PLAYBACK: node.play() speaker=\(speakerId)", tag: "AudioPlaybackEngine")
         }
 
-        node.scheduleBuffer(buffer) { [weak self] in
-            guard let self = self else { return }
-            let anyPlaying = self.isAnyPlaying
-            let allNodeStates = self.playerNodes.map { "s\($0.key)=\($0.value.isPlaying)" }.joined(separator: ",")
-            let threadName = Thread.current.isMainThread ? "main" : (Thread.current.name ?? "bg-\(Thread.current)")
-            Log.info("DIAG-COMPLETION: speaker=\(speakerId) isAnyPlaying=\(anyPlaying) nodes=[\(allNodeStates)] thread=\(threadName)", tag: "AudioPlaybackEngine")
-            self.onSpeakerFinished?(speakerId)
-        }
+        node.scheduleBuffer(buffer)
 
         // Schedule/extend watchdog for this speaker.
         scheduleWatchdog(speakerId: speakerId, pcmByteCount: pcm.count)
@@ -185,22 +172,15 @@ final class AudioPlaybackEngine {
 
     /// Called when the watchdog timer fires — stop the node if still playing.
     private func handleWatchdogFired(speakerId: UInt8) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            let node = self.playerNodes[speakerId]
-            let wasPlaying = node?.isPlaying ?? false
-            let allNodeStates = self.playerNodes.map { "s\($0.key)=\($0.value.isPlaying)" }.joined(separator: ",")
-            Log.info("DIAG-WATCHDOG: speaker=\(speakerId) wasPlaying=\(wasPlaying) allNodes=[\(allNodeStates)] isAnyPlaying=\(self.isAnyPlaying) thread=\(Thread.current.isMainThread ? "main" : "bg")", tag: "AudioPlaybackEngine")
-            if wasPlaying {
-                node?.stop()
-                Log.info("DIAG-WATCHDOG: speaker=\(speakerId) node.stop() called, isAnyPlaying now=\(self.isAnyPlaying)", tag: "AudioPlaybackEngine")
-            }
-            self.expectedPlaybackEnd.removeValue(forKey: speakerId)
-            self.playbackWatchdogs.removeValue(forKey: speakerId)
-            if wasPlaying {
-                self.onSpeakerFinished?(speakerId)
-            }
+        let node = self.playerNodes[speakerId]
+        let wasPlaying = node?.isPlaying ?? false
+        Log.info("DIAG-WATCHDOG: speaker=\(speakerId) wasPlaying=\(wasPlaying)", tag: "AudioPlaybackEngine")
+        if wasPlaying {
+            node?.stop()
+            node?.play()  // Re-arm per design doc
         }
+        expectedPlaybackEnd.removeValue(forKey: speakerId)
+        playbackWatchdogs.removeValue(forKey: speakerId)
     }
 
     /// Convert raw PCM Data (int16 LE) to an AVAudioPCMBuffer.
@@ -228,8 +208,16 @@ final class AudioPlaybackEngine {
     // MARK: - Barge-In Flush
 
     /// Flush all playback and reset meeting state for a new generation.
+    ///
+    /// AVAudioPlayerNode.stop() synchronously waits for the audio render thread.
+    /// If called on the main thread while a render-thread completion handler is
+    /// also dispatching to main, a deadlock occurs. We therefore hop to the
+    /// watchdogQueue (a background serial queue) to call stop(), then return.
     func flushAllAndStop(newGen: UInt8) {
-        Log.info("DIAG: flushAllAndStop newGen=\(newGen) oldGen=\(currentGen) playerNodes=\(playerNodes.count) thread=\(Thread.current)", tag: "AudioPlaybackEngine")
+        let flushStart = CFAbsoluteTimeGetCurrent()
+        let isMain = Thread.current.isMainThread
+        let callerThread = isMain ? "MAIN" : (Thread.current.name ?? "bg")
+        Log.info("DIAG-FLUSH: START newGen=\(newGen) oldGen=\(currentGen) playerNodes=\(playerNodes.count) callerThread=\(callerThread)", tag: "AudioPlaybackEngine")
         currentGen = newGen
 
         // Cancel all watchdogs.
@@ -239,17 +227,23 @@ final class AudioPlaybackEngine {
         playbackWatchdogs.removeAll()
         expectedPlaybackEnd.removeAll()
 
-        // Stop all player nodes and clear all queues.
-        for (speakerId, node) in playerNodes {
-            Log.info("DIAG: stopping node speaker=\(speakerId) isPlaying=\(node.isPlaying)", tag: "AudioPlaybackEngine")
-            node.stop()
-            Log.info("DIAG: stopped node speaker=\(speakerId)", tag: "AudioPlaybackEngine")
+        // Stop all nodes and re-arm for next stream (design doc "Clear the Floor" steps 1-3).
+        // Use async to avoid deadlocking with audio render thread completion handlers.
+        let nodesToStop = playerNodes
+        watchdogQueue.async {
+            for (speakerId, node) in nodesToStop {
+                node.stop()
+                node.play()  // Re-arm per design doc
+                Log.info("DIAG-FLUSH: node.stop()+play() speaker=\(speakerId)", tag: "AudioPlaybackEngine")
+            }
         }
+
         frameQueues.removeAll()
         meetingOrder.removeAll()
         currentMeetingSpeaker = nil
         meetingQueueActive = false
-        Log.info("DIAG: flushAllAndStop complete", tag: "AudioPlaybackEngine")
+        let totalMs = (CFAbsoluteTimeGetCurrent() - flushStart) * 1000
+        Log.info("DIAG-FLUSH: DONE took=\(String(format: "%.1f", totalMs))ms callerThread=\(callerThread)", tag: "AudioPlaybackEngine")
     }
 
     // MARK: - Skip Speaker (Meeting Mode)
@@ -259,15 +253,17 @@ final class AudioPlaybackEngine {
         playbackWatchdogs[speakerId]?.cancel()
         playbackWatchdogs.removeValue(forKey: speakerId)
         expectedPlaybackEnd.removeValue(forKey: speakerId)
-        playerNodes[speakerId]?.stop()
+        let node = playerNodes[speakerId]
+        watchdogQueue.async {
+            node?.stop()
+            node?.play()  // Re-arm per design doc
+        }
         frameQueues[speakerId]?.removeAll()
 
-        // Remove from meeting order.
         if let idx = meetingOrder.firstIndex(of: speakerId) {
             meetingOrder.remove(at: idx)
         }
 
-        // If this was the current meeting speaker, clear it and advance.
         if speakerId == currentMeetingSpeaker {
             currentMeetingSpeaker = nil
         }
@@ -313,9 +309,7 @@ final class AudioPlaybackEngine {
             if index == queue.count - 1 {
                 // Last buffer: attach completion handler to advance meeting.
                 node.scheduleBuffer(buffer) { [weak self] in
-                    DispatchQueue.main.async {
-                        self?.onSpeakerFinished(speakerId: speakerId)
-                    }
+                    self?.onSpeakerFinished(speakerId: speakerId)
                 }
             } else {
                 node.scheduleBuffer(buffer)
@@ -334,24 +328,6 @@ final class AudioPlaybackEngine {
             meetingOrder.removeFirst()
         }
         maybeStartNextMeetingSpeaker()
-    }
-
-    // MARK: - Query
-
-    /// Whether any player node is currently playing audio.
-    var isAnyPlaying: Bool {
-        playerNodes.values.contains { $0.isPlaying }
-    }
-
-    /// The speaker_id currently playing, if any.
-    var currentlyPlayingSpeaker: UInt8? {
-        if let meetingSpeaker = currentMeetingSpeaker {
-            return meetingSpeaker
-        }
-        for (speakerId, node) in playerNodes where node.isPlaying {
-            return speakerId
-        }
-        return nil
     }
 
     // MARK: - Test Helpers

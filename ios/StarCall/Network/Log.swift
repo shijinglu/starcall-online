@@ -137,6 +137,21 @@ public enum Log {
     /// Returns the URL of the current log file (useful for sharing/exporting).
     public static var currentLogFileURL: URL { logFileURL }
 
+    /// Deletes all log files (current + backups) so the next write starts fresh.
+    public static func clearAll() {
+        queue.sync {
+            let fm = FileManager.default
+            // Remove backups
+            for i in 1...maxBackups {
+                let url = logDirectory.appendingPathComponent("StarCall.\(i).log")
+                try? fm.removeItem(at: url)
+            }
+            // Truncate current log file
+            try? fm.removeItem(at: logFileURL)
+        }
+        info("=== Logs cleared ===", tag: "Log")
+    }
+
     /// Returns URLs of all log files (current + backups).
     static var allLogFileURLs: [URL] {
         var urls = [logFileURL]

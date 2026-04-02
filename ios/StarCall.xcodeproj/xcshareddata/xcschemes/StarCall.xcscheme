@@ -15,7 +15,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "3701476F3043D36BC6752ABE"
+               BlueprintIdentifier = "2D432C82FE358920BE10832C"
                BuildableName = "StarCall.app"
                BlueprintName = "StarCall"
                ReferencedContainer = "container:StarCall.xcodeproj">
@@ -29,7 +29,7 @@
             buildForAnalyzing = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "FAD3496F297B765CDF4EC9D7"
+               BlueprintIdentifier = "CB3C7E8E062F6AFA847E979C"
                BuildableName = "StarCallUITests.xctest"
                BlueprintName = "StarCallUITests"
                ReferencedContainer = "container:StarCall.xcodeproj">
@@ -46,7 +46,7 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "3701476F3043D36BC6752ABE"
+            BlueprintIdentifier = "2D432C82FE358920BE10832C"
             BuildableName = "StarCall.app"
             BlueprintName = "StarCall"
             ReferencedContainer = "container:StarCall.xcodeproj">
@@ -58,7 +58,7 @@
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "FAD3496F297B765CDF4EC9D7"
+               BlueprintIdentifier = "CB3C7E8E062F6AFA847E979C"
                BuildableName = "StarCallUITests.xctest"
                BlueprintName = "StarCallUITests"
                ReferencedContainer = "container:StarCall.xcodeproj">
@@ -82,7 +82,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "3701476F3043D36BC6752ABE"
+            BlueprintIdentifier = "2D432C82FE358920BE10832C"
             BuildableName = "StarCall.app"
             BlueprintName = "StarCall"
             ReferencedContainer = "container:StarCall.xcodeproj">
@@ -101,7 +101,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "3701476F3043D36BC6752ABE"
+            BlueprintIdentifier = "2D432C82FE358920BE10832C"
             BuildableName = "StarCall.app"
             BlueprintName = "StarCall"
             ReferencedContainer = "container:StarCall.xcodeproj">

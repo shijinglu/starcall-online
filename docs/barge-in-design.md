@@ -74,3 +74,30 @@ Here is exactly what happens in milliseconds when the user interrupts:
 8.  **User:** Finishes saying "...just the top 3 by dollar amount."
 9.  **Gemini/Backend:** Processes the new intent, realizes it needs to redirect Ellen, and generates the new audio: "got it, redirecting Ellen."
 
+
+---
+
+## 4. Implementation Addendum: Production Hardening
+
+The following features were added during implementation to handle real-world edge cases not covered by the original design.
+
+### A. Playback Watchdog Timer
+`AVAudioPlayerNode.isPlaying` stays `true` after all scheduled buffers finish — a known Apple framework bug. A per-speaker watchdog timer tracks expected playback end time (based on cumulative PCM byte count at 16kHz int16 mono) plus a 300ms safety margin. When the watchdog fires, it explicitly calls `node.stop()` on a background queue to avoid main-thread deadlocks with the audio render thread.
+
+### B. Time-Based Audio Gate
+Rather than polling `AVAudioPlayerNode.isPlaying` to decide whether to send mic audio to the backend, we use a time-based gate (`gateEndTime`). Each incoming audio chunk extends the gate by the chunk's duration. Mic audio is dropped while `now < gateEndTime + margin`. This avoids Gemini hearing its own TTS playback through residual AEC bleed.
+
+### C. Gen_id Zombie Audio Filtering (RFC 1982)
+Each audio frame carries a `gen_id` (0–255, wrapping). When barge-in occurs, the server increments the gen_id. The iOS client uses RFC 1982 modular arithmetic to determine whether an incoming frame is stale (from a previous generation) and discards it silently. This prevents "zombie audio" — leftover frames from a cancelled generation — from playing after barge-in.
+
+### D. Meeting Mode Sequential Delivery
+When multiple agents respond (e.g. Case 3 in the product overview), the iOS client buffers audio per speaker and plays them sequentially rather than mixing. A `meetingOrder` array tracks dispatch order. Each speaker's queued audio plays to completion before the next speaker starts. Barge-in flushes all queued speakers.
+
+### E. Barge-In Tuning Parameters
+AEC is imperfect — residual speaker bleed can reach ~29 dB above the noise floor on physical devices. To avoid false barge-in:
+- **Grace period** (`bargeInPlaybackGrace = 0.8s`): No barge-in fires in the first 800ms of playback, letting AEC settle.
+- **Cooldown** (`bargeInCooldown = 1.0s`): Minimum interval between barge-in events to prevent spam.
+- **Threshold** (`bargeInThresholdDB = 30 dB`): RMS must exceed noise floor by 30 dB to trigger barge-in, above the measured AEC residual ceiling.
+
+### F. Wire Format (Divergence from Original Design)
+The original design specified JSON + Base64 for audio transport. The implementation uses binary frames with a 4-byte header (`[msg_type, speaker_id, gen_id, frame_seq]`) followed by raw PCM. This is more efficient (no Base64 inflation) and lower-latency. Control messages (transcripts, interruptions, agent status) remain JSON text frames. The interruption signal uses `{"type": "interruption", "gen_id": N}` rather than the original `{"type": "interrupt"}`, carrying the authoritative gen_id from the server.

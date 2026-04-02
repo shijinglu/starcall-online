@@ -148,18 +148,11 @@ final class ConversationSession: NSObject {
                 throw error
             }
 
-            // Enable hardware voice processing (AEC) on the input node.
-            // This is critical — without it, the mic picks up TTS playback,
-            // causing false barge-in (design doc section 1A).
-            do {
-                try sharedAudioEngine.inputNode.setVoiceProcessingEnabled(true)
-                Log.info("Voice processing (AEC) enabled on input node", tag: "ConversationSession")
-            } catch {
-                Log.error("Failed to enable voice processing: \(error)", tag: "ConversationSession")
-            }
-
             // Start the shared AVAudioEngine once — both capture and playback
             // use this single engine so hardware AEC can cancel speaker bleed.
+            // Note: .voiceChat mode (set in configureAudioSession) enables hardware
+            // AEC automatically. We also call setVoiceProcessingEnabled(true) AFTER
+            // starting the engine, as calling it before can invalidate the input node.
             do {
                 try playbackEngine.start()  // attaches player nodes to shared engine
                 audioCaptureEngine.startCapture()  // installs input tap on shared engine
@@ -168,6 +161,18 @@ final class ConversationSession: NSObject {
             } catch {
                 Log.error("Shared audio engine start failed: \(error)", tag: "ConversationSession")
                 throw error
+            }
+
+            // Enable voice processing (AEC) on the input node AFTER the engine
+            // is running. Calling this before start can invalidate the node format.
+            // The .voiceChat mode provides basic AEC, but explicit voice processing
+            // enables the full Apple voice processing pipeline.
+            do {
+                try sharedAudioEngine.inputNode.setVoiceProcessingEnabled(true)
+                Log.info("Voice processing (AEC) enabled on input node", tag: "ConversationSession")
+            } catch {
+                // Non-fatal: .voiceChat mode still provides AEC even without this.
+                Log.warning("setVoiceProcessingEnabled failed (AEC via .voiceChat still active): \(error)", tag: "ConversationSession")
             }
 
             state = .active

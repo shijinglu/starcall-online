@@ -237,14 +237,32 @@ async def _handle_control(msg: dict, session: "ConversationSession") -> None:
 
 
 async def _handle_interrupt(msg: dict, session: "ConversationSession") -> None:
-    """Handle barge-in interrupt from the client."""
+    """Handle barge-in interrupt from iOS client or Gemini VAD.
+
+    Debounce: requires 2 interrupt signals within INTERRUPT_DEBOUNCE_WINDOW
+    to confirm the barge-in and execute the flush. A single signal is recorded
+    but not acted on — it may be a false positive from speaker bleed.
+    """
     mode = msg.get("mode", "cancel_all")
+
+    if not session.check_interrupt_debounce(mode):
+        logger.info(
+            "INTERRUPT: pending (awaiting 2nd signal within %.0fms) [session=%s] mode=%s gen=%d",
+            session.INTERRUPT_DEBOUNCE_WINDOW * 1000,
+            session.session_id,
+            mode,
+            session.gen_id,
+        )
+        return  # Don't flush yet
+
     logger.info(
-        "DIAG-ECHO: [session=%s] Client sent interrupt mode=%s old_gen=%d",
+        "INTERRUPT: confirmed [session=%s] mode=%s old_gen=%d",
         session.session_id,
         mode,
         session.gen_id,
     )
+
+    # --- Confirmed barge-in: execute flush ---
     new_gen = _session_manager.increment_gen_id(session.session_id)
     flushed_responses = []
     if session.output_controller:

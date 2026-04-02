@@ -73,7 +73,7 @@ final class AudioCaptureEngine {
     /// dB above the noise floor required to trigger a barge-in.
     /// AEC residual measured up to ~29 dB on physical device. Real speech is 28-35 dB.
     /// Set to 30 dB to avoid false barge-in from AEC residual while still catching speech.
-    private let bargeInThresholdDB: Float = 30.0
+    private let bargeInThresholdDB: Float = 35.0
 
     /// Minimum interval between barge-in triggers (seconds).
     /// Prevents the ~10/s spam observed when speaker bleed keeps RMS above threshold.

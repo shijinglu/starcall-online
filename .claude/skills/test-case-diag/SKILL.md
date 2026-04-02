@@ -139,8 +139,11 @@ Read the tail of `backend/logs/app.log` (last 300 lines) for additional context 
 
 ### 6d. Mobile logs
 
-Try fetching mobile logs with devicectl, for example: 
+**IMPORTANT: Do NOT terminate or relaunch the app before pulling logs.** The app clears its log file on launch (`Log.clearAll()`), so terminating and relaunching will wipe all session data. Pull logs from the running app directly:
+
 `xcrun devicectl device copy from --device 'iPhone 3G' --domain-type appDataContainer --domain-identifier com.shijinglu.StarCall --source Documents/Logs/StarCall.log --destination /tmp/StarCall_diag.log`
+
+If the copy fails (e.g. socket error), retry once or twice with a short delay — do NOT terminate the app as a workaround. If it still fails after retries, note this in the report and proceed without mobile logs.
 
 If we are running in simulator, and if mobile-mcp is available, attempt to capture device logs with mobile-mcp. 
 

@@ -550,7 +550,9 @@ class GeminiLiveProxy:
             for fn_call in response.tool_call.function_calls:
                 await self._handle_tool_call(session, fn_call)
 
-        # 4. Gemini-side interruption event — finalize buffers
+        # 4. Gemini-side interruption event — treat as a barge-in signal.
+        # Routed through the same debounce gate as iOS interrupts: requires
+        # 2 signals within INTERRUPT_DEBOUNCE_WINDOW to confirm.
         if sc and getattr(sc, "interrupted", False):
             since_turn_complete = (
                 _time.monotonic() - session._diag_turn_complete_at
@@ -558,7 +560,7 @@ class GeminiLiveProxy:
             )
             logger.info(
                 "DIAG-ECHO: [session=%s] Gemini-side interruption "
-                "(VAD thinks user spoke — likely echo). "
+                "(VAD thinks user spoke). "
                 "oc_state=%s, since_turn_complete=%.1fs, "
                 "user_buf=%r mod_buf=%r",
                 sid,
@@ -568,13 +570,24 @@ class GeminiLiveProxy:
                 self._transcript.get_moderator(sid)[-200:],
             )
             await self._transcript.flush(session)
-            if self.send_json:
-                await self.send_json(
-                    session,
-                    {
-                        "type": "interruption",
-                        "gen_id": session.gen_id,
-                    },
+            if session.check_interrupt_debounce("cancel_all"):
+                # Confirmed barge-in (2nd signal)
+                logger.info(
+                    "INTERRUPT: Gemini VAD confirmed barge-in [session=%s] gen=%d",
+                    sid, session.gen_id,
+                )
+                if self.send_json:
+                    await self.send_json(
+                        session,
+                        {
+                            "type": "interruption",
+                            "gen_id": session.gen_id,
+                        },
+                    )
+            else:
+                logger.info(
+                    "INTERRUPT: Gemini VAD pending (awaiting 2nd signal) [session=%s]",
+                    sid,
                 )
 
         # 5. turn_complete — finalize transcript buffers

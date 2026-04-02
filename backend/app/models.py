@@ -49,6 +49,12 @@ class ConversationSession:
     agent_sessions: dict[str, AgentSession] = field(default_factory=dict)
     gen_id: int = 0
 
+    # Barge-in debounce: require 2 interrupt signals within window to confirm.
+    # Prevents false barge-in from single RMS spikes or isolated Gemini VAD echos.
+    pending_interrupt_time: float = 0.0
+    pending_interrupt_mode: str | None = None
+    INTERRUPT_DEBOUNCE_WINDOW: float = 0.8  # seconds
+
     # Persistent conversation transcript (completed turns only)
     transcript_history: list[dict[str, str]] = field(default_factory=list)
 
@@ -69,6 +75,28 @@ class ConversationSession:
         seq = self._moderator_frame_seq
         self._moderator_frame_seq = (self._moderator_frame_seq + 1) & 0xFF
         return seq
+
+    def check_interrupt_debounce(self, mode: str = "cancel_all") -> bool:
+        """Check if an interrupt signal should be acted on.
+
+        Returns True if this is the confirming second signal within the
+        debounce window (barge-in confirmed). Returns False if this is the
+        first signal (recorded, awaiting confirmation).
+        """
+        now = time.monotonic()
+        if (
+            self.pending_interrupt_time > 0
+            and (now - self.pending_interrupt_time) < self.INTERRUPT_DEBOUNCE_WINDOW
+        ):
+            # Second signal within window — confirmed
+            self.pending_interrupt_time = 0.0
+            self.pending_interrupt_mode = None
+            return True
+        else:
+            # First signal — record and wait
+            self.pending_interrupt_time = now
+            self.pending_interrupt_mode = mode
+            return False
 
 
 @dataclass

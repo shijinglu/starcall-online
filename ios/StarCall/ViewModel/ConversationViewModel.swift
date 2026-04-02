@@ -132,8 +132,16 @@ final class ConversationViewModel: ObservableObject {
 
     // MARK: - Agent Comm Handling
 
-    /// Handle an agent_comm event — store latest text per agent.
+    /// Handle an agent_comm event — display as a transcript message.
     func handleAgentCommEvent(_ event: AgentCommEvent) {
+        // Show as a normal transcript message in the message list
+        transcript.append(TranscriptLine(
+            speaker: event.fromAgent,
+            text: event.text,
+            isFinal: true
+        ))
+
+        // Also keep the ephemeral badge on the agent avatar
         agentCommTexts[event.fromAgent] = (text: event.text, genId: event.genId)
 
         // Cancel existing fade timer for this agent.

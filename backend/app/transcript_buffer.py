@@ -107,6 +107,14 @@ class TranscriptBuffer:
         if mod_text:
             session.transcript_history.append({"speaker": "moderator", "text": mod_text})
 
+    # Trigger words that must appear in the user transcript for barge-in
+    BARGEIN_TRIGGER_WORDS: set[str] = {"stop", "wait", "hold on", "pause", "hey", "excuse me"}
+
+    def has_trigger_word(self, sid: str) -> bool:
+        """Check if the user transcript buffer contains a barge-in trigger word."""
+        text = self._user_buf.get(sid, "").lower()
+        return any(w in text for w in self.BARGEIN_TRIGGER_WORDS)
+
     def get_user(self, sid: str) -> str:
         """Return current user buffer content (for logging)."""
         return self._user_buf.get(sid, "")

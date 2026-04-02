@@ -567,44 +567,55 @@ class GeminiLiveProxy:
                 await self._handle_tool_call(session, fn_call)
 
         # 4. Gemini-side interruption event — treat as a barge-in signal.
-        # Routed through the same debounce gate as iOS interrupts: requires
-        # 2 signals within INTERRUPT_DEBOUNCE_WINDOW to confirm.
+        # Gated on trigger words: only act if the user transcript contains
+        # a barge-in keyword (e.g. "stop", "wait"). Then routed through
+        # the same debounce gate as iOS interrupts.
         if sc and getattr(sc, "interrupted", False):
             since_turn_complete = (
                 _time.monotonic() - session._diag_turn_complete_at
                 if hasattr(session, '_diag_turn_complete_at') else -1
             )
+            user_buf = self._transcript.get_user(sid)
+            has_trigger = self._transcript.has_trigger_word(sid)
             logger.info(
                 "DIAG-ECHO: [session=%s] Gemini-side interruption "
                 "(VAD thinks user spoke). "
                 "oc_state=%s, since_turn_complete=%.1fs, "
-                "user_buf=%r mod_buf=%r",
+                "has_trigger=%s, user_buf=%r mod_buf=%r",
                 sid,
                 oc_state,
                 since_turn_complete,
-                self._transcript.get_user(sid)[-200:],
+                has_trigger,
+                user_buf[-200:],
                 self._transcript.get_moderator(sid)[-200:],
             )
-            await self._transcript.flush(session)
-            if session.check_interrupt_debounce("cancel_all"):
-                # Confirmed barge-in (2nd signal)
+            if not has_trigger:
                 logger.info(
-                    "INTERRUPT: Gemini VAD confirmed barge-in [session=%s] gen=%d",
-                    sid, session.gen_id,
+                    "INTERRUPT: suppressed (no trigger word in transcript) "
+                    "[session=%s] user_buf=%r",
+                    sid, user_buf[-200:],
                 )
-                if self.send_json:
-                    await self.send_json(
-                        session,
-                        {
-                            "type": "interruption",
-                            "gen_id": session.gen_id,
-                        },
-                    )
             else:
-                logger.info(
-                    "INTERRUPT: Gemini VAD pending (awaiting 2nd signal) [session=%s]",
-                    sid,
-                )
+                await self._transcript.flush(session)
+                if session.check_interrupt_debounce("cancel_all"):
+                    # Confirmed barge-in (2nd signal)
+                    logger.info(
+                        "INTERRUPT: Gemini VAD confirmed barge-in [session=%s] gen=%d",
+                        sid, session.gen_id,
+                    )
+                    if self.send_json:
+                        await self.send_json(
+                            session,
+                            {
+                                "type": "interruption",
+                                "gen_id": session.gen_id,
+                            },
+                        )
+                else:
+                    logger.info(
+                        "INTERRUPT: Gemini VAD pending (awaiting 2nd signal) [session=%s]",
+                        sid,
+                    )
 
         # 5. turn_complete — finalize transcript buffers
         if sc and getattr(sc, "turn_complete", False):

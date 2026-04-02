@@ -239,11 +239,22 @@ async def _handle_control(msg: dict, session: "ConversationSession") -> None:
 async def _handle_interrupt(msg: dict, session: "ConversationSession") -> None:
     """Handle barge-in interrupt from iOS client or Gemini VAD.
 
-    Debounce: requires 2 interrupt signals within INTERRUPT_DEBOUNCE_WINDOW
-    to confirm the barge-in and execute the flush. A single signal is recorded
-    but not acted on — it may be a false positive from speaker bleed.
+    Gated on trigger words: the user transcript must contain a barge-in
+    keyword (e.g. "stop", "wait") before the interrupt is considered.
+    Then debounced: requires 2 signals within INTERRUPT_DEBOUNCE_WINDOW.
     """
     mode = msg.get("mode", "cancel_all")
+
+    # Check trigger-word gate via the transcript buffer
+    transcript = _gemini_proxy._transcript
+    sid = session.session_id
+    has_trigger = transcript.has_trigger_word(sid)
+    if not has_trigger:
+        logger.info(
+            "INTERRUPT: suppressed (no trigger word) [session=%s] mode=%s user_buf=%r",
+            sid, mode, transcript.get_user(sid)[-200:],
+        )
+        return
 
     if not session.check_interrupt_debounce(mode):
         logger.info(

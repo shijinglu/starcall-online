@@ -316,6 +316,11 @@ class AgentTaskManager:
                         agent_session.agent_name,
                     )
 
+                # Persist agent response to conversation history
+                conv_session.transcript_history.append(
+                    {"speaker": agent_session.agent_name, "text": spoken_text}
+                )
+
             agent_session.status = "idle"
             if self.send_json:
                 await self.send_json(

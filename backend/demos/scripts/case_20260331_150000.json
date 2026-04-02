@@ -17,11 +17,11 @@
     },
     {
       "text": "hold on, just the top 3 by dollar amount, skip the details",
-      "wait": 12
+      "wait": 30
     },
     {
       "text": "flag the wire reversal and send me a one-liner on it",
-      "wait": 12
+      "wait": 40
     }
   ]
 }

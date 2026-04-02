@@ -25,10 +25,10 @@ from demo_harness import SCRIPTS_DIR, load_script
 # ---------- Configuration ----------
 BACKEND_LOG = Path(__file__).resolve().parent.parent / "logs" / "app.log"
 DEFAULT_VOICE = "Samantha"
-DEFAULT_VOLUME = 30
+DEFAULT_VOLUME = 60
 
 DEVICE_ECID = "07A23C42-5796-5D3A-BC9A-CC2288AC325A"
-BUNDLE_ID = "com.shijinglu.VoiceAgent"
+BUNDLE_ID = "com.shijinglu.StarCall"
 
 
 # ---------- Timeline ----------

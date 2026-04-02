@@ -1,5 +1,14 @@
 import SwiftUI
 
+// MARK: - Start Mode Configuration
+
+enum StartMode {
+    case auto   // Count down 10s on launch, then auto-start listening
+    case manual // User must tap the mic button to start
+}
+
+let START_MODE: StartMode = .auto
+
 /// Main StarCl conversation UI.
 ///
 /// Layout (top to bottom):
@@ -10,6 +19,10 @@ import SwiftUI
 /// - Bottom bar: mute, mic, history
 public struct ContentView: View {
     @StateObject private var viewModel = ConversationViewModel()
+
+    /// Countdown seconds remaining for auto-start mode. nil = not counting down.
+    @State private var autoStartCountdown: Int? = nil
+    @State private var countdownTimer: Timer? = nil
 
     public init() {}
 
@@ -31,6 +44,8 @@ public struct ContentView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
+        .onAppear { startAutoCountdownIfNeeded() }
+        .onDisappear { cancelAutoCountdown() }
     }
 
     // MARK: - Header
@@ -131,7 +146,7 @@ public struct ContentView: View {
                 .tracking(-0.5)
                 .padding(.bottom, 3)
 
-            Text("Tap the mic to start a session")
+            Text(autoStartCountdown != nil ? "Auto-starting session..." : "Tap the mic to start a session")
                 .font(.system(size: 13))
                 .foregroundColor(StarClTheme.labelText)
                 .padding(.bottom, 20)
@@ -331,6 +346,9 @@ public struct ContentView: View {
     private var micStatusText: String {
         switch viewModel.sessionState {
         case .idle, .stopped:
+            if let secs = autoStartCountdown, secs > 0 {
+                return "STARTING IN \(secs)s"
+            }
             return "TAP TO START"
         case .connecting:
             return "CONNECTING"
@@ -340,6 +358,9 @@ public struct ContentView: View {
     }
 
     private func handleMicTap() {
+        // Any manual tap cancels auto-countdown
+        cancelAutoCountdown()
+
         switch viewModel.sessionState {
         case .idle, .stopped:
             viewModel.reset()
@@ -350,6 +371,36 @@ public struct ContentView: View {
         case .connecting:
             viewModel.tapStop()
         }
+    }
+
+    // MARK: - Auto-Start Countdown
+
+    private func startAutoCountdownIfNeeded() {
+        guard START_MODE == .auto, viewModel.sessionState == .idle else { return }
+        autoStartCountdown = 10
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            Task { @MainActor in
+                guard var remaining = autoStartCountdown, remaining > 0 else {
+                    cancelAutoCountdown()
+                    return
+                }
+                remaining -= 1
+                autoStartCountdown = remaining
+                if remaining == 0 {
+                    cancelAutoCountdown()
+                    if viewModel.sessionState == .idle {
+                        viewModel.reset()
+                        viewModel.tapStart()
+                    }
+                }
+            }
+        }
+    }
+
+    private func cancelAutoCountdown() {
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        autoStartCountdown = nil
     }
 
     // MARK: - New Conversation Button

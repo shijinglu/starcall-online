@@ -46,6 +46,7 @@ final class AudioPlaybackEngine {
     private var expectedPlaybackEnd: [UInt8: CFAbsoluteTime] = [:]
     private var playbackWatchdogs: [UInt8: DispatchWorkItem] = [:]
     private let watchdogMargin: Double = 0.3  // 300ms safety margin
+    private let watchdogQueue = DispatchQueue(label: "com.starcall.playback.watchdog")
 
     // MARK: - Init
 
@@ -83,7 +84,7 @@ final class AudioPlaybackEngine {
         } else {
             Log.info("Playback engine: using shared AVAudioEngine (AEC-enabled)", tag: "AudioPlaybackEngine")
         }
-        audioEngine.mainMixerNode.outputVolume = 1.5
+        audioEngine.mainMixerNode.outputVolume = 3.0
         isStarted = true
         Log.info("Playback engine: ready", tag: "AudioPlaybackEngine")
     }
@@ -105,6 +106,7 @@ final class AudioPlaybackEngine {
         let node = AVAudioPlayerNode()
         audioEngine.attach(node)
         audioEngine.connect(node, to: audioEngine.mainMixerNode, format: playbackFormat)
+        node.volume = 2.0
         playerNodes[speakerId] = node
         return node
     }
@@ -146,11 +148,16 @@ final class AudioPlaybackEngine {
 
         if !node.isPlaying {
             node.play()
+            Log.info("DIAG-PLAYBACK: node.play() speaker=\(speakerId)", tag: "AudioPlaybackEngine")
         }
 
         node.scheduleBuffer(buffer) { [weak self] in
-            // Note: This fires per-buffer. For meeting mode we track separately.
-            self?.onSpeakerFinished?(speakerId)
+            guard let self = self else { return }
+            let anyPlaying = self.isAnyPlaying
+            let allNodeStates = self.playerNodes.map { "s\($0.key)=\($0.value.isPlaying)" }.joined(separator: ",")
+            let threadName = Thread.current.isMainThread ? "main" : (Thread.current.name ?? "bg-\(Thread.current)")
+            Log.info("DIAG-COMPLETION: speaker=\(speakerId) isAnyPlaying=\(anyPlaying) nodes=[\(allNodeStates)] thread=\(threadName)", tag: "AudioPlaybackEngine")
+            self.onSpeakerFinished?(speakerId)
         }
 
         // Schedule/extend watchdog for this speaker.
@@ -173,21 +180,26 @@ final class AudioPlaybackEngine {
             self?.handleWatchdogFired(speakerId: speakerId)
         }
         playbackWatchdogs[speakerId] = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+        watchdogQueue.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
     /// Called when the watchdog timer fires — stop the node if still playing.
     private func handleWatchdogFired(speakerId: UInt8) {
-        let node = playerNodes[speakerId]
-        let wasPlaying = node?.isPlaying ?? false
-        if wasPlaying {
-            node?.stop()
-            Log.info("DIAG-WATCHDOG: speaker=\(speakerId) stopped by watchdog (node.isPlaying was stuck true)", tag: "AudioPlaybackEngine")
-        }
-        expectedPlaybackEnd.removeValue(forKey: speakerId)
-        playbackWatchdogs.removeValue(forKey: speakerId)
-        if wasPlaying {
-            onSpeakerFinished?(speakerId)
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let node = self.playerNodes[speakerId]
+            let wasPlaying = node?.isPlaying ?? false
+            let allNodeStates = self.playerNodes.map { "s\($0.key)=\($0.value.isPlaying)" }.joined(separator: ",")
+            Log.info("DIAG-WATCHDOG: speaker=\(speakerId) wasPlaying=\(wasPlaying) allNodes=[\(allNodeStates)] isAnyPlaying=\(self.isAnyPlaying) thread=\(Thread.current.isMainThread ? "main" : "bg")", tag: "AudioPlaybackEngine")
+            if wasPlaying {
+                node?.stop()
+                Log.info("DIAG-WATCHDOG: speaker=\(speakerId) node.stop() called, isAnyPlaying now=\(self.isAnyPlaying)", tag: "AudioPlaybackEngine")
+            }
+            self.expectedPlaybackEnd.removeValue(forKey: speakerId)
+            self.playbackWatchdogs.removeValue(forKey: speakerId)
+            if wasPlaying {
+                self.onSpeakerFinished?(speakerId)
+            }
         }
     }
 

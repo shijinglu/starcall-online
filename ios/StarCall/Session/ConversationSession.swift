@@ -69,6 +69,14 @@ final class ConversationSession: NSObject {
     private var diagLastIsPlayingState: Bool = false
     private var diagBinaryFramesReceived: Int = 0
     private var diagSpeakerFinishedCount: Int = 0
+    /// DIAG: timestamp when gate last closed (isPlaying became true)
+    private var diagGateClosedTime: CFAbsoluteTime = 0
+    /// DIAG: timestamp of last binary frame received
+    private var diagLastBinaryFrameTime: CFAbsoluteTime = 0
+    /// DIAG: consecutive chunks dropped while gate stuck
+    private var diagConsecutiveDrops: Int = 0
+    /// Tracks the last speaker reported to the delegate to avoid redundant UI updates.
+    private var lastReportedPlayingSpeaker: UInt8? = nil
 
     // MARK: - Init
 
@@ -153,8 +161,18 @@ final class ConversationSession: NSObject {
                 let isNowPlaying = self.playbackEngine.isAnyPlaying
                 self.audioCaptureEngine.isPlaying = isNowPlaying
                 self.diagSpeakerFinishedCount += 1
+                let threadName = Thread.current.isMainThread ? "main" : (Thread.current.name ?? "bg-\(Thread.current)")
                 if wasPlaying != isNowPlaying {
-                    Log.info("DIAG-GATE: onSpeakerFinished speaker=\(speakerId) isPlaying \(wasPlaying)->\(isNowPlaying) callbacks=\(self.diagSpeakerFinishedCount) skipped=\(self.diagChunksSentDuringPlayback) sent=\(self.diagChunksSentDuringSilence)", tag: "ConversationSession")
+                    let gateDuration = self.diagGateClosedTime > 0 ? CFAbsoluteTimeGetCurrent() - self.diagGateClosedTime : 0
+                    Log.info("DIAG-GATE: onSpeakerFinished speaker=\(speakerId) isPlaying \(wasPlaying)->\(isNowPlaying) callbacks=\(self.diagSpeakerFinishedCount) skipped=\(self.diagChunksSentDuringPlayback) sent=\(self.diagChunksSentDuringSilence) gateDuration=\(String(format: "%.2f", gateDuration))s thread=\(threadName)", tag: "ConversationSession")
+                    if !isNowPlaying {
+                        self.diagConsecutiveDrops = 0
+                    }
+                } else if wasPlaying && isNowPlaying {
+                    // Gate still closed after callback — log periodically to track stuck state
+                    if self.diagSpeakerFinishedCount % 10 == 0 {
+                        Log.info("DIAG-GATE: onSpeakerFinished speaker=\(speakerId) STILL PLAYING callbacks=\(self.diagSpeakerFinishedCount) thread=\(threadName)", tag: "ConversationSession")
+                    }
                 }
             }
 
@@ -360,6 +378,7 @@ extension ConversationSession: WebSocketTransportDelegate {
         }
         let pcm = Data(data.dropFirst(AudioFrameHeader.size))
         diagBinaryFramesReceived += 1
+        diagLastBinaryFrameTime = CFAbsoluteTimeGetCurrent()
         let wasPlaying = audioCaptureEngine.isPlaying
         playbackEngine.receiveAudioFrame(header: header, pcm: pcm)
 
@@ -372,7 +391,11 @@ extension ConversationSession: WebSocketTransportDelegate {
         if diagBinaryFramesReceived == 1 || diagBinaryFramesReceived % 50 == 0 {
             Log.info("DIAG-GATE: receiveBinaryFrame #\(diagBinaryFramesReceived) speaker=\(header.speakerId) isPlaying=\(isNowPlaying) pcmBytes=\(pcm.count)", tag: "ConversationSession")
         }
-        delegate?.sessionDidUpdatePlayingSpeaker(playbackEngine.currentlyPlayingSpeaker)
+        let newSpeaker = playbackEngine.currentlyPlayingSpeaker
+        if newSpeaker != lastReportedPlayingSpeaker {
+            lastReportedPlayingSpeaker = newSpeaker
+            delegate?.sessionDidUpdatePlayingSpeaker(newSpeaker)
+        }
     }
 
     func transportDidReceiveTextFrame(_ text: String) {
@@ -452,7 +475,13 @@ extension ConversationSession: AudioCaptureEngineDelegate {
 
         // DIAG: log gate state transitions
         if isCurrentlyPlaying != diagLastIsPlayingState {
-            Log.info("DIAG-GATE: audio gate \(isCurrentlyPlaying ? "CLOSED (dropping chunks)" : "OPEN (sending chunks)") skipped=\(diagChunksSentDuringPlayback) sent=\(diagChunksSentDuringSilence) isAnyPlaying=\(playbackEngine.isAnyPlaying) speakerFinishedCallbacks=\(diagSpeakerFinishedCount)", tag: "ConversationSession")
+            let now = CFAbsoluteTimeGetCurrent()
+            if isCurrentlyPlaying {
+                diagGateClosedTime = now
+                diagConsecutiveDrops = 0
+            }
+            let gateDuration = (!isCurrentlyPlaying && diagGateClosedTime > 0) ? now - diagGateClosedTime : 0
+            Log.info("DIAG-GATE: audio gate \(isCurrentlyPlaying ? "CLOSED (dropping chunks)" : "OPEN (sending chunks)") skipped=\(diagChunksSentDuringPlayback) sent=\(diagChunksSentDuringSilence) isAnyPlaying=\(playbackEngine.isAnyPlaying) speakerFinishedCallbacks=\(diagSpeakerFinishedCount) gateDuration=\(String(format: "%.2f", gateDuration))s", tag: "ConversationSession")
             diagLastIsPlayingState = isCurrentlyPlaying
         }
 
@@ -463,8 +492,16 @@ extension ConversationSession: AudioCaptureEngineDelegate {
         // flushes playback → isPlaying becomes false → audio flows again.
         if isCurrentlyPlaying {
             diagChunksSentDuringPlayback += 1
+            diagConsecutiveDrops += 1
             if diagChunksSentDuringPlayback == 1 || diagChunksSentDuringPlayback % 100 == 0 {
                 Log.info("DIAG-GATE: chunk DROPPED #\(diagChunksSentDuringPlayback) (isPlaying=true, isAnyPlaying=\(playbackEngine.isAnyPlaying))", tag: "ConversationSession")
+            }
+            // DIAG: Stuck gate detector — if gate closed for >3s with no new audio frames, dump state
+            let now = CFAbsoluteTimeGetCurrent()
+            let gateAge = diagGateClosedTime > 0 ? now - diagGateClosedTime : 0
+            let silenceSinceLastFrame = diagLastBinaryFrameTime > 0 ? now - diagLastBinaryFrameTime : 0
+            if diagConsecutiveDrops == 30 || (diagConsecutiveDrops > 0 && diagConsecutiveDrops % 50 == 0) {
+                Log.warning("DIAG-STUCK: gate closed for \(String(format: "%.1f", gateAge))s, \(diagConsecutiveDrops) chunks dropped, no audio frame for \(String(format: "%.1f", silenceSinceLastFrame))s, isAnyPlaying=\(playbackEngine.isAnyPlaying) currentSpeaker=\(playbackEngine.currentlyPlayingSpeaker.map(String.init) ?? "nil") speakerFinishedCallbacks=\(diagSpeakerFinishedCount)", tag: "ConversationSession")
             }
             // Still update UI amplitude but don't send to backend.
             let samples = data.withUnsafeBytes { rawBuffer -> [Int16] in

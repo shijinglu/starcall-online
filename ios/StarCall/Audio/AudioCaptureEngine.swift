@@ -33,7 +33,23 @@ final class AudioCaptureEngine {
     }
 
     /// Whether the system is currently playing back audio (used for barge-in detection and noise floor updates).
-    var isPlaying: Bool = false
+    /// Thread-safe: accessed from audio render, WebSocket, and main threads.
+    var isPlaying: Bool {
+        get { isPlayingLock.withLock { _isPlaying } }
+        set {
+            let oldValue = isPlayingLock.withLock {
+                let old = _isPlaying
+                _isPlaying = newValue
+                return old
+            }
+            if oldValue != newValue {
+                let threadName = Thread.current.isMainThread ? "main" : (Thread.current.name ?? "bg-\(Thread.current)")
+                Log.info("DIAG-ISPLAYING: \(oldValue)->\(newValue) thread=\(threadName)", tag: "AudioCaptureEngine")
+            }
+        }
+    }
+    private var _isPlaying: Bool = false
+    private let isPlayingLock = NSLock()
 
     // MARK: - Noise Floor / Barge-In Configuration
 

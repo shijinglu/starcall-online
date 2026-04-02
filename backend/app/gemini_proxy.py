@@ -702,6 +702,26 @@ class GeminiLiveProxy:
                 fn_call_id=fn_call.id,
             )
 
+    @staticmethod
+    def _build_task_with_context(
+        session: "ConversationSession", task: str
+    ) -> str:
+        """Prepend recent conversation history to the agent task."""
+        history = session.transcript_history
+        if not history:
+            return task
+        # Keep last 20 turns to avoid bloating the prompt
+        recent = history[-20:]
+        lines = []
+        for entry in recent:
+            speaker = entry["speaker"]
+            lines.append(f"  {speaker}: {entry['text']}")
+        context = "\n".join(lines)
+        return (
+            f"[Conversation so far]\n{context}\n\n"
+            f"[Your task]\n{task}"
+        )
+
     async def _handle_dispatch_agent(
         self, session: "ConversationSession", fn_call
     ) -> None:
@@ -727,7 +747,10 @@ class GeminiLiveProxy:
             )
             return
 
-        agent_session_id = await self._atm.dispatch(session, agent_name, task)
+        # Prepend conversation history so the agent has context
+        task_with_context = self._build_task_with_context(session, task)
+
+        agent_session_id = await self._atm.dispatch(session, agent_name, task_with_context)
 
         await self.send_tool_response(
             session,

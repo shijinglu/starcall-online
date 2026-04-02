@@ -29,6 +29,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Thread-local delegation chain storage: agent_name -> chain
+_active_delegation_chains: dict[str, list[str]] = {}
+
 
 class SDKAgentRunner:
     """Runs a Claude agent via the Agent SDK with whole-message TTS."""
@@ -46,6 +49,7 @@ class SDKAgentRunner:
         agent_session: "AgentSession",
         task: str,
         on_text: Callable[[str, str], Awaitable[None]] | None = None,
+        delegation_chain: list[str] | None = None,
     ) -> str:
         """Run an agent task via the Agent SDK.
 
@@ -77,6 +81,9 @@ class SDKAgentRunner:
         agent = agent_session.agent_name
         t0 = time.monotonic()
         logger.info("[%s] starting agent task: %s", agent, task[:200])
+
+        # Register delegation chain so the ask_agent tool closure can read it
+        _active_delegation_chains[agent] = delegation_chain or []
 
         full_text = ""
         gen = query(prompt=task, options=options)
@@ -174,6 +181,8 @@ class SDKAgentRunner:
                 "[%s] DIAG: gen.aclose() took %.1fs",
                 agent, time.monotonic() - close_start,
             )
+            # Clean up delegation chain registration
+            _active_delegation_chains.pop(agent, None)
 
         # Update conversation history for Gemini context
         agent_session.conversation_history.append({"role": "user", "content": task})

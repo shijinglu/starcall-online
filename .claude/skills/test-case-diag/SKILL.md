@@ -1,7 +1,6 @@
 ---
 name: test-case-diag
 description: Translate a user-flow test case into a conversation script, run it on a physical device, collect logs, and produce a diagnostic summary comparing actual behavior to the planned flow
-user_invocable: true
 ---
 
 # Test Case Diagnostics
@@ -62,20 +61,16 @@ Reference format (from `backend/demos/scripts/case_2.json`):
 
 ---
 
-## Step 3: Verify backend is running
+## Step 3: Setup
 
-Before building or running anything, check that the backend server is up:
+Run the [setup script](./scripts/test_case_diag_setup.sh) to ensure the backend server is up:
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health
+cd /Users/shijinglu/Workspace/hackthon/.claude/skills/test-case-diag/scripts/
+bash scripts/test_case_diag_setup.sh
 ```
 
-- If the response is `200`, proceed to Step 4.
-- If the request fails or returns a non-200 status, **stop and ask the user**:
-
-> The backend server does not appear to be running at `http://localhost:8000`. Please start it (`cd backend && make run`) and confirm when it's ready.
-
-Wait for the user to confirm before continuing. Do **not** start the backend yourself.
+This script checks whether the backend is running and starts it if needed. Wait for it to complete before proceeding.
 
 ---
 
@@ -83,23 +78,12 @@ Wait for the user to confirm before continuing. Do **not** start the backend you
 
 Before running the test, **always** rebuild the iOS app and deploy it to the **physical device** (not the simulator). This ensures the test runs against the latest code on real hardware.
 
-Use the shell to build and deploy:
+Use computer-use mcp to bring xcode front and 
+1. Click the Stop button to stop current session
+2. Click the Run (▶) button to re-build and re-deploy the app.
 
-1. Build the app for physical device using xcodebuild:
-   ```bash
-   cd /Users/shijinglu/Workspace/hackthon/ios && \
-     xcodebuild -project VoiceAgent.xcodeproj -scheme VoiceAgent \
-     -destination 'generic/platform=iOS' \
-     -allowProvisioningUpdates \
-     build 2>&1 | tail -20
-   ```
-2. Install the built app on the connected physical device using `ios-deploy` or `xcrun devicectl`:
-   ```bash
-   xcrun devicectl device install app --device <DEVICE_UDID> <PATH_TO_APP>
-   ```
-   To find the device UDID: `xcrun devicectl list devices`
-   To find the built .app path: check the xcodebuild output or look in DerivedData.
-3. If the build or install fails, **stop immediately** and report the error to the user. Do not proceed to run the test case.
+If this step failed, stop and ask user to fix computer-use
+
 ---
 
 ## Step 5: Run the test case

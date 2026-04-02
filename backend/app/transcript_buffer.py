@@ -101,6 +101,11 @@ class TranscriptBuffer:
                     "is_final": True,
                 },
             )
+        # Persist completed turn to session history for agent context
+        if user_text:
+            session.transcript_history.append({"speaker": "user", "text": user_text})
+        if mod_text:
+            session.transcript_history.append({"speaker": "moderator", "text": mod_text})
 
     def get_user(self, sid: str) -> str:
         """Return current user buffer content (for logging)."""

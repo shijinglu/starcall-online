@@ -33,9 +33,12 @@ def load_script(path: str | Path) -> dict:
     """
     p = Path(path)
     if not p.suffix:
+        # Bare name like "case_2" → resolve to scripts/case_2.json
         p = SCRIPTS_DIR / f"{p.name}.json"
-    if not p.is_absolute():
-        p = SCRIPTS_DIR / p
+    elif not p.is_absolute():
+        # Relative path with extension — resolve against CWD first
+        if not p.exists():
+            p = SCRIPTS_DIR / p.name
     with open(p) as f:
         data = json.load(f)
     # Validate minimal structure

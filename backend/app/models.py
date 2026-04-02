@@ -49,6 +49,9 @@ class ConversationSession:
     agent_sessions: dict[str, AgentSession] = field(default_factory=dict)
     gen_id: int = 0
 
+    # Persistent conversation transcript (completed turns only)
+    transcript_history: list[dict[str, str]] = field(default_factory=list)
+
     # Audio queue feeding the Gemini audio send loop
     audio_queue: asyncio.Queue = field(default_factory=asyncio.Queue)  # type: ignore[type-arg]
 

@@ -29,19 +29,26 @@ class ClaudeA2AExecutor(AgentExecutor):
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         agent_name = (context.metadata or {}).get("agent_name", "")
+        delegation_chain = (context.metadata or {}).get("delegation_chain", [])
         task_text = context.get_user_input()
         task_id = context.task_id or "unknown"
         context_id = context.context_id or "unknown"
 
-        logger.info("A2A execute: agent=%s, task_id=%s, text=%.100s", agent_name, task_id, task_text)
+        logger.info("A2A execute: agent=%s, task_id=%s, chain=%s, text=%.100s", agent_name, task_id, delegation_chain, task_text)
 
         updater = TaskUpdater(event_queue, task_id, context_id)
         await updater.start_work()
 
         try:
             agent_session = AgentSession(agent_name=agent_name)
-            on_text = _comm_callbacks.get(agent_name)
-            result_text = await self.sdk_runner.run(agent_session, task_text, on_text=on_text)
+            # For delegated agents, use the root agent's callback so comm events
+            # flow through the original WebSocket connection.
+            root_agent = delegation_chain[0] if delegation_chain else agent_name
+            on_text = _comm_callbacks.get(root_agent)
+            result_text = await self.sdk_runner.run(
+                agent_session, task_text, on_text=on_text,
+                delegation_chain=delegation_chain,
+            )
 
             await event_queue.enqueue_event(
                 new_agent_text_message(result_text or "No result.", context_id, task_id)

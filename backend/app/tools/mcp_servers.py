@@ -166,7 +166,10 @@ def _make_ask_agent_for(source_name: str):
         },
     )
     async def ask_agent(args: dict[str, Any]) -> dict[str, Any]:
+        from app.sdk_agent_runner import _active_delegation_chains
+
         args["source_agent"] = source_name
+        args["delegation_chain"] = _active_delegation_chains.get(source_name, [])
         return await ask_agent_handler(args)
 
     return ask_agent

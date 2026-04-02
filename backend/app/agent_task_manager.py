@@ -268,7 +268,7 @@ class AgentTaskManager:
                     _comm_callbacks.pop(agent_session.agent_name, None)
                     _comm_last_sent.pop(agent_session.agent_name, None)
 
-            # Rephrase + TTS + delivery outside the timeout window
+            # Rephrase + enqueue to Response Queue (TTS happens eagerly in background)
             if full_text:
                 logger.info(
                     "DIAG _run_agent [%s]: full_text len=%d, preview=%.200s",
@@ -287,39 +287,31 @@ class AgentTaskManager:
                     len(spoken_text),
                     spoken_text,
                 )
-                tts_start = time.time()
-                pcm = await self._tts.synthesize(spoken_text, agent_session.agent_name)
-                logger.info(
-                    "DIAG _run_agent [%s]: TTS took %.1fs, pcm=%s, "
-                    "expected_duration=%.1fs",
-                    agent_session.agent_name,
-                    time.time() - tts_start,
-                    f"{len(pcm)} bytes" if pcm else "None",
-                    len(pcm) / (16000 * 2) if pcm else 0,  # 16kHz 16-bit
+
+                # Persist agent response to conversation history at enqueue time
+                # (even if later flushed, agents have full context)
+                conv_session.transcript_history.append(
+                    {"speaker": agent_session.agent_name, "text": spoken_text}
                 )
-                if pcm:
-                    # Deliver via OutputController (serialized, chunked)
-                    if conv_session.output_controller:
-                        conv_session.output_controller.enqueue_agent_audio(
-                            agent_session.agent_name, pcm, conv_session.gen_id
-                        )
-                    elif self.send_agent_audio:
-                        # Fallback for tests without OutputController
+
+                # Deliver via Response Queue (TTS-when-idle)
+                if conv_session.output_controller:
+                    conv_session.output_controller.enqueue_response(
+                        agent_name=agent_session.agent_name,
+                        spoken_text=spoken_text,
+                        raw_text=full_text,
+                        gen_id=conv_session.gen_id,
+                    )
+                elif self.send_agent_audio:
+                    # Fallback for tests without OutputController: direct TTS
+                    pcm = await self._tts.synthesize(
+                        spoken_text, agent_session.agent_name
+                    )
+                    if pcm:
                         await self.send_agent_audio(
                             conv_session, agent_session.agent_name, pcm,
                             agent_session.next_frame_seq()
                         )
-                else:
-                    logger.warning(
-                        "DIAG _run_agent [%s]: TTS returned empty PCM, "
-                        "no audio will be delivered",
-                        agent_session.agent_name,
-                    )
-
-                # Persist agent response to conversation history
-                conv_session.transcript_history.append(
-                    {"speaker": agent_session.agent_name, "text": spoken_text}
-                )
 
             agent_session.status = "idle"
             if self.send_json:

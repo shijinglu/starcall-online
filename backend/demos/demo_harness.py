@@ -46,6 +46,18 @@ def load_script(path: str | Path) -> dict:
     for i, turn in enumerate(data["conversation"]):
         assert "text" in turn, f"Turn {i} missing 'text': {p}"
         turn.setdefault("wait", 10)
+        # Barge-in fields
+        turn.setdefault("barge_in", False)
+        turn.setdefault("delay_from_prev_start", None)
+        turn.setdefault("delay_from_response_start", None)
+        turn.setdefault("expect_interrupt", False)
+        turn.setdefault("min_interrupt_delay_ms", None)
+        # Validate mutual exclusivity
+        if turn["delay_from_prev_start"] is not None and turn["delay_from_response_start"] is not None:
+            raise ValueError(
+                f"Turn {i}: delay_from_prev_start and delay_from_response_start "
+                f"are mutually exclusive: {p}"
+            )
     data.setdefault("name", p.stem)
     data.setdefault("description", "")
     data.setdefault("final_wait", 10)
@@ -99,6 +111,13 @@ class TurnTiming:
     first_agent_audio_t: float = 0.0
     last_agent_audio_t: float = 0.0
     agent_audio_speaker: str = ""
+    # Barge-in fields
+    is_barge_in: bool = False
+    barge_in_fire_t: float = 0.0
+    barge_in_target_t: float = 0.0
+    interrupt_received_t: float = 0.0
+    expect_interrupt: bool = False
+    interrupt_received: bool = False
 
 
 @dataclass
@@ -194,12 +213,17 @@ def encode_frame(msg_type: int, speaker_id: int, gen_id: int, frame_seq: int, pc
     return header + pcm
 
 
-async def send_audio(ws, pcm_data: bytes, gen_id: int, timing: TurnTiming, recorder: AudioRecorder) -> int:
+async def send_audio(
+    ws, pcm_data: bytes, gen_id: int, timing: TurnTiming,
+    recorder: AudioRecorder, cancel_event: asyncio.Event | None = None,
+) -> int:
     frame_seq = 0
     offset = 0
     timing.speech_send_start = time.monotonic()
     recorder.add_user_audio(pcm_data)
     while offset < len(pcm_data):
+        if cancel_event and cancel_event.is_set():
+            break
         chunk = pcm_data[offset : offset + CHUNK_SIZE]
         frame = encode_frame(MSG_AUDIO_CHUNK, SPEAKER_USER, gen_id, frame_seq, chunk)
         await ws.send(frame)
@@ -210,6 +234,8 @@ async def send_audio(ws, pcm_data: bytes, gen_id: int, timing: TurnTiming, recor
     silence_chunk = b"\x00" * CHUNK_SIZE
     silence_frames = int(SILENCE_DURATION * SAMPLE_RATE * 2 / CHUNK_SIZE)
     for _ in range(silence_frames):
+        if cancel_event and cancel_event.is_set():
+            break
         frame = encode_frame(MSG_AUDIO_CHUNK, SPEAKER_USER, gen_id, frame_seq, silence_chunk)
         await ws.send(frame)
         frame_seq = (frame_seq + 1) & 0xFF
@@ -218,7 +244,13 @@ async def send_audio(ws, pcm_data: bytes, gen_id: int, timing: TurnTiming, recor
     return frame_seq
 
 
-async def receive_loop(ws, stop_event: asyncio.Event, response_event: asyncio.Event, tc: TimingCollector, recorder: AudioRecorder):
+async def receive_loop(
+    ws, stop_event: asyncio.Event, response_event: asyncio.Event,
+    tc: TimingCollector, recorder: AudioRecorder,
+    gen_id_ref: list[int] | None = None,
+    interrupt_event: asyncio.Event | None = None,
+    first_response_event: asyncio.Event | None = None,
+):
     try:
         async for message in ws:
             now = time.monotonic()
@@ -235,11 +267,15 @@ async def receive_loop(ws, stop_event: asyncio.Event, response_event: asyncio.Ev
                         if msg_type == MSG_AUDIO_RESPONSE:
                             if cur.first_audio_mod_t == 0.0:
                                 cur.first_audio_mod_t = now
+                                if first_response_event:
+                                    first_response_event.set()
                             cur.last_audio_mod_t = now
                         elif msg_type == MSG_AGENT_AUDIO:
                             if cur.first_agent_audio_t == 0.0:
                                 cur.first_agent_audio_t = now
                                 cur.agent_audio_speaker = speaker
+                                if first_response_event:
+                                    first_response_event.set()
                             cur.last_agent_audio_t = now
                     if frame_seq == 0:
                         print(f"  [AUDIO] {speaker} gen={gen_id} ({pcm_len} bytes PCM)")
@@ -291,6 +327,18 @@ async def receive_loop(ws, stop_event: asyncio.Event, response_event: asyncio.Ev
                     elif msg_type == "interruption":
                         new_gen = data.get("gen_id", "?")
                         print(f"  [INTERRUPT] new gen_id={new_gen}")
+                        if gen_id_ref is not None and isinstance(new_gen, int):
+                            old_gen = gen_id_ref[0]
+                            # Validate monotonicity (modular)
+                            diff = (new_gen - old_gen) & 0xFF
+                            if diff == 0 or diff >= 128:
+                                print(f"  [WARN] gen_id not monotonic: {old_gen} -> {new_gen}")
+                            gen_id_ref[0] = new_gen
+                        if cur and cur.interrupt_received_t == 0.0:
+                            cur.interrupt_received_t = now
+                            cur.interrupt_received = True
+                        if interrupt_event:
+                            interrupt_event.set()
                     else:
                         print(f"  [MSG] {data}")
                 except json.JSONDecodeError:
@@ -346,6 +394,18 @@ def print_timing_report(tc: TimingCollector):
                 print(f"  >> Agent audio playback duration:               {dur:>7.0f}ms")
         if t.final_mod_text:
             print(f"  Moderator said: \"{t.final_mod_text}\"")
+        # Barge-in metrics
+        if t.is_barge_in:
+            print(f"  [BARGE-IN]")
+            if t.barge_in_target_t and t.barge_in_fire_t:
+                accuracy = (t.barge_in_fire_t - t.barge_in_target_t) * 1000
+                print(f"  Barge-in accuracy:    {accuracy:>+7.0f}ms (target vs actual)")
+            if t.interrupt_received_t and t.barge_in_fire_t:
+                latency = (t.interrupt_received_t - t.barge_in_fire_t) * 1000
+                print(f"  Interrupt latency:    {latency:>7.0f}ms (fire to interrupt)")
+            status = "PASS" if t.interrupt_received else "FAIL"
+            if t.expect_interrupt:
+                print(f"  Expected interrupt:   [{status}]")
     print("\n" + "=" * 80)
     print("SUMMARY TABLE")
     print("=" * 80)
@@ -359,22 +419,46 @@ def print_timing_report(tc: TimingCollector):
         total = _dur(t.speech_send_start, t.final_mod_t) if t.final_mod_t else "n/a"
         utt = t.utterance[:28] + ".." if len(t.utterance) > 30 else t.utterance
         print(f"{t.turn + 1:<5} {utt:<30} {speech:>8} {tts:>8} {first_resp:>9} {full_resp:>10} {total:>8}")
+
+    # Barge-in summary
+    barge_in_turns = [t for t in tc.turns if t.is_barge_in]
+    if barge_in_turns:
+        print("\n" + "=" * 80)
+        print("BARGE-IN SUMMARY")
+        print("=" * 80)
+        print(f"{'Turn':<5} {'Utterance':<25} {'Fire Delay':>10} {'Int Rcvd':>10} {'Pass':>6}")
+        print("-" * 60)
+        for t in barge_in_turns:
+            utt = t.utterance[:23] + ".." if len(t.utterance) > 25 else t.utterance
+            if t.barge_in_target_t and t.barge_in_fire_t:
+                fire_delay = f"{(t.barge_in_fire_t - t.barge_in_target_t) * 1000:+.0f}ms"
+            else:
+                fire_delay = "n/a"
+            if t.interrupt_received_t and t.barge_in_fire_t:
+                int_rcvd = f"+{(t.interrupt_received_t - t.barge_in_fire_t) * 1000:.0f}ms"
+            else:
+                int_rcvd = "n/a"
+            if t.expect_interrupt:
+                status = "YES" if t.interrupt_received else "FAIL"
+            else:
+                status = "-"
+            print(f"{t.turn + 1:<5} {utt:<25} {fire_delay:>10} {int_rcvd:>10} {status:>6}")
     print()
 
 
 # ---------- Main entry point ----------
 async def run_demo(
     case_name: str,
-    conversation: list[str],
-    delays: list[int],
+    turns: list[dict],
     final_wait: int = 10,
 ):
     """Run an automated conversation demo.
 
     Args:
-        case_name: Used for the title and output filename (e.g. "demo_case_1").
-        conversation: List of user utterances.
-        delays: Max seconds to wait for response after each utterance.
+        case_name: Used for the title and output filename.
+        turns: List of turn dicts with keys: text, wait, barge_in,
+               delay_from_prev_start, delay_from_response_start,
+               expect_interrupt, min_interrupt_delay_ms.
         final_wait: Seconds to wait for trailing agent responses at the end.
     """
     print("=" * 60)
@@ -383,6 +467,17 @@ async def run_demo(
 
     tc = TimingCollector()
     recorder = AudioRecorder()
+
+    # Pre-generate TTS for barge-in turns (need audio ready at fire time)
+    print("\n[0] Pre-generating TTS for barge-in turns...")
+    pregenerated: dict[int, tuple[bytes, float]] = {}  # index -> (pcm, duration)
+    for i, turn_data in enumerate(turns):
+        if turn_data.get("barge_in"):
+            t0 = time.monotonic()
+            pcm = generate_tts_audio(turn_data["text"])
+            dur = time.monotonic() - t0
+            pregenerated[i] = (pcm, dur)
+            print(f"    Turn {i+1}: pre-generated {len(pcm)} bytes in {dur*1000:.0f}ms")
 
     # Step 1: Create session
     print("\n[1] Creating session...")
@@ -407,7 +502,15 @@ async def run_demo(
 
         stop_event = asyncio.Event()
         response_event = asyncio.Event()
-        receiver = asyncio.create_task(receive_loop(ws, stop_event, response_event, tc, recorder))
+        interrupt_event = asyncio.Event()
+        first_response_event = asyncio.Event()
+        gen_id_ref = [0]
+        receiver = asyncio.create_task(receive_loop(
+            ws, stop_event, response_event, tc, recorder,
+            gen_id_ref=gen_id_ref,
+            interrupt_event=interrupt_event,
+            first_response_event=first_response_event,
+        ))
 
         # Step 3: Start session
         print("\n[3] Starting session...")
@@ -415,31 +518,118 @@ async def run_demo(
         await asyncio.sleep(2)
 
         # Step 4: Run conversation
-        gen_id_ref = [0]
-        for i, utterance in enumerate(conversation):
-            delay = delays[i] if i < len(delays) else 10
+        cancel_event = asyncio.Event()
+        send_task: asyncio.Task | None = None
+        prev_turn_start_t: float = 0.0
+        prev_first_response_t: float = 0.0
+
+        for i, turn_data in enumerate(turns):
+            utterance = turn_data["text"]
+            delay = turn_data.get("wait", 10)
+            is_barge_in = turn_data.get("barge_in", False)
+            delay_from_prev_start = turn_data.get("delay_from_prev_start")
+            delay_from_response_start = turn_data.get("delay_from_response_start")
+            expect_interrupt = turn_data.get("expect_interrupt", False)
+
             response_event.clear()
+            interrupt_event.clear()
+            first_response_event.clear()
 
             turn = tc.new_turn(i, utterance)
-            print(f"\n[USER] >>> {utterance}")
+            turn.is_barge_in = is_barge_in
+            turn.expect_interrupt = expect_interrupt
 
-            turn.tts_start = time.monotonic()
-            pcm_data = generate_tts_audio(utterance)
-            turn.tts_end = time.monotonic()
+            if is_barge_in:
+                # Compute target fire time and wait for it
+                if delay_from_prev_start is not None and prev_turn_start_t > 0:
+                    target_t = prev_turn_start_t + delay_from_prev_start
+                    turn.barge_in_target_t = target_t
+                    wait_secs = max(0, target_t - time.monotonic())
+                    if wait_secs > 0:
+                        print(f"\n    [BARGE-IN] Waiting {wait_secs:.1f}s to fire...")
+                        await asyncio.sleep(wait_secs)
+                elif delay_from_response_start is not None:
+                    # Wait for first response audio, then delay
+                    print(f"\n    [BARGE-IN] Waiting for first response audio...")
+                    try:
+                        await asyncio.wait_for(first_response_event.wait(), timeout=30)
+                    except asyncio.TimeoutError:
+                        print(f"    [BARGE-IN] No response audio within 30s, firing anyway")
+                    prev_first_response_t = time.monotonic()
+                    target_t = prev_first_response_t + delay_from_response_start
+                    turn.barge_in_target_t = target_t
+                    wait_secs = max(0, target_t - time.monotonic())
+                    if wait_secs > 0:
+                        await asyncio.sleep(wait_secs)
+                else:
+                    # Default barge-in: 2s from previous start
+                    if prev_turn_start_t > 0:
+                        target_t = prev_turn_start_t + 2.0
+                        turn.barge_in_target_t = target_t
+                        wait_secs = max(0, target_t - time.monotonic())
+                        if wait_secs > 0:
+                            await asyncio.sleep(wait_secs)
+
+                # Cancel any in-flight send from previous turn
+                if send_task and not send_task.done():
+                    cancel_event.set()
+                    try:
+                        await send_task
+                    except asyncio.CancelledError:
+                        pass
+                    cancel_event.clear()
+                    cancel_event = asyncio.Event()
+
+                turn.barge_in_fire_t = time.monotonic()
+
+            print(f"\n[USER] >>> {utterance}" + (" [BARGE-IN]" if is_barge_in else ""))
+            prev_turn_start_t = time.monotonic()
+
+            # Generate or retrieve pre-generated TTS
+            if i in pregenerated:
+                pcm_data, tts_dur = pregenerated[i]
+                turn.tts_start = time.monotonic() - tts_dur  # approximate
+                turn.tts_end = time.monotonic()
+            else:
+                turn.tts_start = time.monotonic()
+                pcm_data = generate_tts_audio(utterance)
+                turn.tts_end = time.monotonic()
             turn.speech_duration_s = len(pcm_data) / SAMPLE_RATE / 2
-            print(f"    TTS: {len(pcm_data)} bytes ({turn.speech_duration_s:.1f}s audio) generated in {_dur(turn.tts_start, turn.tts_end)}")
+            print(f"    TTS: {len(pcm_data)} bytes ({turn.speech_duration_s:.1f}s audio)")
 
-            await send_audio(ws, pcm_data, gen_id_ref[0], turn, recorder)
-            total_frames = len(pcm_data) // CHUNK_SIZE + 1 + int(SILENCE_DURATION * SAMPLE_RATE * 2 / CHUNK_SIZE)
-            print(f"    Sent {total_frames} frames (speech {_dur(turn.speech_send_start, turn.speech_send_end)} + silence {_dur(turn.speech_send_end, turn.silence_send_end)})")
+            send_task = asyncio.create_task(
+                send_audio(ws, pcm_data, gen_id_ref[0], turn, recorder, cancel_event)
+            )
 
-            print(f"    Waiting up to {delay}s for response...")
-            try:
-                await asyncio.wait_for(response_event.wait(), timeout=delay)
-                print(f"    Got moderator response!")
-                await asyncio.sleep(3)
-            except asyncio.TimeoutError:
-                print(f"    Timeout - proceeding to next utterance")
+            if is_barge_in:
+                # For barge-in: wait for send to complete, then brief wait for interrupt
+                await send_task
+                send_task = None
+                print(f"    Waiting up to {delay}s for response/interrupt...")
+                done, _ = await asyncio.wait(
+                    [asyncio.create_task(response_event.wait()),
+                     asyncio.create_task(interrupt_event.wait())],
+                    timeout=delay,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if done:
+                    print(f"    Got response/interrupt!")
+                    await asyncio.sleep(3)
+                else:
+                    print(f"    Timeout - proceeding to next utterance")
+            else:
+                # Sequential: wait for send, then wait for response
+                await send_task
+                send_task = None
+                total_frames = len(pcm_data) // CHUNK_SIZE + 1 + int(SILENCE_DURATION * SAMPLE_RATE * 2 / CHUNK_SIZE)
+                print(f"    Sent {total_frames} frames (speech {_dur(turn.speech_send_start, turn.speech_send_end)} + silence {_dur(turn.speech_send_end, turn.silence_send_end)})")
+                print(f"    Waiting up to {delay}s for response...")
+                try:
+                    await asyncio.wait_for(response_event.wait(), timeout=delay)
+                    print(f"    Got moderator response!")
+                    await asyncio.sleep(3)
+                except asyncio.TimeoutError:
+                    print(f"    Timeout - proceeding to next utterance")
 
         # Step 5: Wait for final responses
         print(f"\n[5] Waiting {final_wait}s for final responses...")

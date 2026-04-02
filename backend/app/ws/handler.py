@@ -109,7 +109,11 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query(...)):
     # Initialize the output controller for this session
     oc = OutputController()
     session.output_controller = oc
-    oc.start(ws=ws)
+    oc.start(
+        ws=ws,
+        tts_fn=_agent_task_manager._tts.synthesize,
+        gen_id_fn=lambda: session.gen_id,
+    )
 
     logger.info("WS connected for session %s", session.session_id)
 
@@ -242,8 +246,16 @@ async def _handle_interrupt(msg: dict, session: "ConversationSession") -> None:
         session.gen_id,
     )
     new_gen = _session_manager.increment_gen_id(session.session_id)
+    flushed_responses = []
     if session.output_controller:
-        session.output_controller.flush(gen_id=new_gen)
+        flushed_responses = session.output_controller.flush(gen_id=new_gen)
+    # Log flushed text responses to transcript (never spoken, but context preserved)
+    for resp in flushed_responses:
+        session.transcript_history.append({
+            "speaker": resp.agent_name,
+            "text": resp.spoken_text,
+            "flushed": True,
+        })
     await _agent_task_manager.handle_interrupt(session, mode)
     await send_json_msg(session, {"type": "interruption", "gen_id": new_gen})
 

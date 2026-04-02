@@ -1,0 +1,15 @@
+{
+  "name": "Barge-in: interrupt during agent audio",
+  "description": "User interrupts while an agent's TTS response is playing to redirect to a different agent.",
+  "final_wait": 20,
+  "conversation": [
+    {"text": "Shijing, analyze the ACH return spike from yesterday.", "wait": 20},
+    {
+      "text": "Stop, I changed my mind. Eva, look into it instead.",
+      "barge_in": true,
+      "delay_from_response_start": 2.0,
+      "expect_interrupt": true,
+      "wait": 20
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "Baseline: sequential (no barge-in)",
+  "description": "Same utterances as case_7 but purely sequential, for latency comparison.",
+  "final_wait": 15,
+  "conversation": [
+    {"text": "hello", "wait": 8},
+    {"text": "Ellen, give me a detailed report on yesterday's transaction anomalies.", "wait": 15},
+    {"text": "Hold on, just the top 3 by dollar amount.", "wait": 12},
+    {"text": "Thanks, that's all.", "wait": 8}
+  ]
+}

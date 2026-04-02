@@ -52,13 +52,10 @@ if __name__ == "__main__":
         parser.error("script is required (use --list to see available scripts)")
 
     script_data = load_script(args.script)
-    conversation = [t["text"] for t in script_data["conversation"]]
-    delays = [t["wait"] for t in script_data["conversation"]]
     final_wait = args.final_wait if args.final_wait is not None else script_data["final_wait"]
 
     asyncio.run(run_demo(
         case_name=script_data["name"],
-        conversation=conversation,
-        delays=delays,
+        turns=script_data["conversation"],
         final_wait=final_wait,
     ))

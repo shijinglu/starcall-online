@@ -1,5 +1,8 @@
 import AVFoundation
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Delegate for session events that the ViewModel observes.
 protocol ConversationSessionDelegate: AnyObject {
@@ -227,6 +230,25 @@ final class ConversationSession: NSObject {
         sessionId = nil
     }
 
+    // MARK: - Haptic Feedback
+
+    #if canImport(UIKit)
+    private let hapticGenerator = UIImpactFeedbackGenerator(style: .light)
+    #endif
+    private var lastHapticTime: CFAbsoluteTime = 0
+    private let hapticDedupeInterval: Double = 0.5
+
+    /// Fire a subtle haptic tap for barge-in acknowledgment.
+    /// Deduplicated so dual triggers (local + server) don't double-tap.
+    private func fireHaptic() {
+        let now = CFAbsoluteTimeGetCurrent()
+        guard now - lastHapticTime >= hapticDedupeInterval else { return }
+        lastHapticTime = now
+        #if canImport(UIKit)
+        hapticGenerator.impactOccurred()
+        #endif
+    }
+
     // MARK: - Barge-In
 
     /// Handle a barge-in event (dual trigger: local RMS or server interruption).
@@ -249,6 +271,7 @@ final class ConversationSession: NSObject {
         audioCaptureEngine.isPlaying = false
         gateEndTime = 0  // Immediately reopen the time-based gate on barge-in
         transport.sendJSON(["type": "interrupt", "mode": "cancel_all"])
+        fireHaptic()
         delegate?.sessionDidReceiveBargeIn(currentGenId: Int(currentGen))
         Log.info("DIAG: handleBargein complete, isPlaying reset to false, gate reopened", tag: "ConversationSession")
     }
@@ -269,6 +292,7 @@ final class ConversationSession: NSObject {
         playbackEngine.flushAllAndStop(newGen: currentGen)
         audioCaptureEngine.isPlaying = false
         gateEndTime = 0  // Immediately reopen the time-based gate
+        fireHaptic()
         delegate?.sessionDidReceiveBargeIn(currentGenId: Int(currentGen))
     }
 

@@ -1,0 +1,23 @@
+{
+  "name": "Barge-in: rapid-fire interruptions",
+  "description": "User interrupts twice in quick succession to test state machine recovery.",
+  "final_wait": 15,
+  "conversation": [
+    {"text": "Summarize the fraud report.", "wait": 10},
+    {
+      "text": "No wait.",
+      "barge_in": true,
+      "delay_from_prev_start": 3.0,
+      "expect_interrupt": true,
+      "wait": 5
+    },
+    {
+      "text": "Actually, start with chargebacks.",
+      "barge_in": true,
+      "delay_from_prev_start": 2.0,
+      "expect_interrupt": true,
+      "wait": 5
+    },
+    {"text": "OK go ahead.", "wait": 15}
+  ]
+}

@@ -11,14 +11,19 @@ import asyncio
 import enum
 import logging
 import time as _time
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Callable, Coroutine
 
 from app.codec import AGENT_SPEAKER_IDS, MsgType, SpeakerId, encode_frame
 
 logger = logging.getLogger(__name__)
 
 _AUDIO_CHUNK_SIZE = 3200  # 100ms of 16 kHz 16-bit PCM
+_RESPONSE_QUEUE_MAX = 5  # cap to prevent unbounded growth
+
+# Type alias for the TTS callback
+TTSFn = Callable[[str, str], Coroutine[Any, Any, bytes | None]]
+GenIdFn = Callable[[], int]
 
 
 class OutputState(enum.Enum):
@@ -41,8 +46,25 @@ class AudioItem:
         return 0 if self.speaker == "moderator" else 1
 
 
+@dataclass
+class PendingResponse:
+    """An agent text response waiting to be TTS'd and played."""
+
+    agent_name: str
+    spoken_text: str  # post-rephrase text ready for TTS
+    raw_text: str  # original agent output (for transcript logging)
+    gen_id: int
+    enqueued_at: float = field(default_factory=_time.monotonic)
+    pcm: bytes | None = None  # eager TTS result
+    tts_task: asyncio.Task | None = None  # background TTS task
+
+
 class OutputController:
-    """Serializes all audio output through a single writer task."""
+    """Serializes all audio output through a single writer task.
+
+    Also manages a response queue for agent text results that are
+    TTS'd eagerly but only played when the audio pipeline is idle.
+    """
 
     def __init__(self) -> None:
         self.state: OutputState = OutputState.LISTENING
@@ -53,29 +75,54 @@ class OutputController:
         self._ws: Any = None  # WebSocket connection, set via start()
         self._frame_seq: int = 0
         self._flushed: bool = False  # set by flush() to abort active send
+        # Response queue (text-level, pre-TTS)
+        self._response_queue: list[PendingResponse] = []
+        self._response_drain_event = asyncio.Event()
+        self._response_drain_task: asyncio.Task | None = None
+        self._tts_fn: TTSFn | None = None
+        self._gen_id_fn: GenIdFn | None = None
 
-    def start(self, ws: Any) -> None:
-        """Attach to a WebSocket and start the drain loop."""
+    def start(
+        self,
+        ws: Any,
+        tts_fn: TTSFn | None = None,
+        gen_id_fn: GenIdFn | None = None,
+    ) -> None:
+        """Attach to a WebSocket and start drain loops."""
         self._ws = ws
+        self._tts_fn = tts_fn
+        self._gen_id_fn = gen_id_fn
         self._drain_task = asyncio.create_task(self._drain_loop())
+        if tts_fn is not None:
+            self._response_drain_task = asyncio.create_task(
+                self._response_drain_loop()
+            )
 
     async def stop(self) -> None:
-        """Stop the drain loop."""
+        """Stop all drain loops and cancel in-flight TTS tasks."""
         logger.info(
             "DIAG OutputController: stop() called, state=%s, "
-            "mod_q=%d, agent_q=%d, drain_task_done=%s",
+            "mod_q=%d, agent_q=%d, resp_q=%d, drain_task_done=%s",
             self.state.value,
             len(self._moderator_queue),
             len(self._agent_queue),
+            len(self._response_queue),
             self._drain_task.done() if self._drain_task else "N/A",
         )
-        if self._drain_task and not self._drain_task.done():
-            self._drain_task.cancel()
-            try:
-                await self._drain_task
-            except asyncio.CancelledError:
-                pass
-        self._drain_task = None
+        for task_attr in ("_drain_task", "_response_drain_task"):
+            task = getattr(self, task_attr, None)
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            setattr(self, task_attr, None)
+        # Cancel any in-flight TTS tasks
+        for resp in self._response_queue:
+            if resp.tts_task and not resp.tts_task.done():
+                resp.tts_task.cancel()
+        self._response_queue.clear()
         self._ws = None
 
     def enqueue_moderator_audio(self, pcm: bytes, gen_id: int) -> None:
@@ -100,8 +147,91 @@ class OutputController:
         self._agent_queue.append(AudioItem(agent_name, pcm, gen_id))
         self._drain_event.set()
 
+    # ------------------------------------------------------------------
+    # Response queue (text-level)
+    # ------------------------------------------------------------------
+
+    def _is_stale_gen(self, gen_id: int) -> bool:
+        """RFC 1982 staleness check for 8-bit gen_id."""
+        if self._gen_id_fn is None:
+            return False
+        current = self._gen_id_fn() & 0xFF
+        diff = (current - gen_id) & 0xFF
+        return 0 < diff < 128
+
+    def enqueue_response(
+        self,
+        agent_name: str,
+        spoken_text: str,
+        raw_text: str,
+        gen_id: int,
+    ) -> None:
+        """Enqueue an agent text response for TTS-when-idle delivery.
+
+        TTS starts immediately in background (eager). The response drain
+        loop plays the result only when the audio pipeline is idle.
+        """
+        if self._is_stale_gen(gen_id):
+            logger.info(
+                "Discarding stale response from %s (gen=%d, current=%d)",
+                agent_name, gen_id,
+                self._gen_id_fn() if self._gen_id_fn else -1,
+            )
+            return
+
+        # Cap queue size
+        if len(self._response_queue) >= _RESPONSE_QUEUE_MAX:
+            dropped = self._response_queue.pop(0)
+            if dropped.tts_task and not dropped.tts_task.done():
+                dropped.tts_task.cancel()
+            logger.warning(
+                "Response queue overflow: dropped oldest from %s (gen=%d)",
+                dropped.agent_name, dropped.gen_id,
+            )
+
+        resp = PendingResponse(
+            agent_name=agent_name,
+            spoken_text=spoken_text,
+            raw_text=raw_text,
+            gen_id=gen_id,
+        )
+        # Start eager TTS
+        if self._tts_fn is not None:
+            resp.tts_task = asyncio.create_task(
+                self._eager_tts(resp)
+            )
+
+        logger.info(
+            "DIAG OutputController: enqueue_response agent=%s, "
+            "gen_id=%d, text_len=%d, resp_q=%d",
+            agent_name, gen_id, len(spoken_text),
+            len(self._response_queue) + 1,
+        )
+        self._response_queue.append(resp)
+        self._response_drain_event.set()
+
+    async def _eager_tts(self, resp: PendingResponse) -> bytes | None:
+        """Background TTS synthesis for a pending response."""
+        try:
+            pcm = await self._tts_fn(resp.spoken_text, resp.agent_name)
+            resp.pcm = pcm
+            # Signal drain loop in case it's waiting
+            self._response_drain_event.set()
+            return pcm
+        except asyncio.CancelledError:
+            return None
+        except Exception as exc:
+            logger.error(
+                "Eager TTS failed for %s: %s", resp.agent_name, exc,
+            )
+            return None
+
     def pending_count(self) -> int:
-        return len(self._moderator_queue) + len(self._agent_queue)
+        return (
+            len(self._moderator_queue)
+            + len(self._agent_queue)
+            + len(self._response_queue)
+        )
 
     def _get_next(self) -> AudioItem | None:
         """Return the next item to drain.  Moderator always takes priority."""
@@ -111,10 +241,17 @@ class OutputController:
             return self._agent_queue.pop(0)
         return None
 
-    def flush(self, gen_id: int | None = None) -> None:
-        """Flush queued audio (barge-in).  If gen_id given, only flush stale items."""
+    def flush(
+        self, gen_id: int | None = None,
+    ) -> list[PendingResponse]:
+        """Flush queued audio and pending responses (barge-in).
+
+        Returns list of flushed PendingResponse items so the caller
+        can log them to the transcript with a flushed marker.
+        """
         before_mod = len(self._moderator_queue)
         before_agent = len(self._agent_queue)
+        before_resp = len(self._response_queue)
         prev_state = self.state
         if gen_id is None:
             self._moderator_queue.clear()
@@ -126,19 +263,34 @@ class OutputController:
             self._agent_queue = [
                 i for i in self._agent_queue if i.gen_id >= gen_id
             ]
+        # Flush response queue and cancel in-flight TTS
+        flushed_responses = list(self._response_queue)
+        for resp in flushed_responses:
+            if resp.tts_task and not resp.tts_task.done():
+                resp.tts_task.cancel()
+            logger.info(
+                "INTERRUPT: flushed unspoken response from %s (gen=%d): %.100s",
+                resp.agent_name, resp.gen_id, resp.spoken_text,
+            )
+        self._response_queue.clear()
+
         # Signal active _send_audio to abort
         self._flushed = True
-        items_flushed = (before_mod - len(self._moderator_queue)) + (
-            before_agent - len(self._agent_queue)
+        items_flushed = (
+            (before_mod - len(self._moderator_queue))
+            + (before_agent - len(self._agent_queue))
+            + before_resp
         )
         logger.info(
             "INTERRUPT: barge-in detected, prev_state=%s, gen_id=%s, "
-            "items_flushed=%d, mod_q %d->%d, agent_q %d->%d",
+            "items_flushed=%d, mod_q %d->%d, agent_q %d->%d, resp_q %d->0",
             prev_state.value, gen_id, items_flushed,
             before_mod, len(self._moderator_queue),
             before_agent, len(self._agent_queue),
+            before_resp,
         )
         self.state = OutputState.LISTENING
+        return flushed_responses
 
     # ------------------------------------------------------------------
     # Drain loop -- the single writer
@@ -157,6 +309,8 @@ class OutputController:
                         if self.state != OutputState.LISTENING:
                             self.state = OutputState.LISTENING
                             await self._emit_playback_state("listening")
+                            # Wake response drain loop on idle transition
+                            self._response_drain_event.set()
                         break
 
                     # Update state and notify client
@@ -198,6 +352,77 @@ class OutputController:
         except Exception as exc:
             logger.error(
                 "OutputController drain loop crashed: %s", exc, exc_info=True
+            )
+
+    # ------------------------------------------------------------------
+    # Response drain loop -- TTS-when-idle
+    # ------------------------------------------------------------------
+
+    async def _response_drain_loop(self) -> None:
+        """Drain pending text responses: TTS and enqueue audio when idle."""
+        try:
+            while True:
+                await self._response_drain_event.wait()
+                self._response_drain_event.clear()
+
+                while self._response_queue:
+                    # Only proceed if pipeline is idle
+                    if self.state != OutputState.LISTENING:
+                        break
+
+                    resp = self._response_queue.pop(0)
+
+                    # Discard if gen_id is now stale
+                    if self._is_stale_gen(resp.gen_id):
+                        if resp.tts_task and not resp.tts_task.done():
+                            resp.tts_task.cancel()
+                        logger.info(
+                            "Response drain: discarding stale %s (gen=%d)",
+                            resp.agent_name, resp.gen_id,
+                        )
+                        continue
+
+                    # Await eager TTS if not ready yet
+                    if resp.pcm is None and resp.tts_task:
+                        try:
+                            resp.pcm = await resp.tts_task
+                        except asyncio.CancelledError:
+                            continue
+
+                    # Race condition guard: re-check state after TTS
+                    if self.state != OutputState.LISTENING:
+                        # Put back at front and wait
+                        self._response_queue.insert(0, resp)
+                        logger.info(
+                            "Response drain: state changed during TTS, "
+                            "re-queuing %s", resp.agent_name,
+                        )
+                        break
+
+                    if resp.pcm:
+                        logger.info(
+                            "Response drain: playing %s (gen=%d, %.1fs audio)",
+                            resp.agent_name, resp.gen_id,
+                            len(resp.pcm) / (16000 * 2),
+                        )
+                        self.enqueue_agent_audio(
+                            resp.agent_name, resp.pcm, resp.gen_id
+                        )
+                        # Wait for audio drain to finish before next response
+                        # (the audio drain loop will set state back to LISTENING)
+                        break
+                    else:
+                        logger.warning(
+                            "Response drain: no PCM for %s (TTS failed?)",
+                            resp.agent_name,
+                        )
+
+        except asyncio.CancelledError:
+            logger.info("DIAG OutputController: response drain loop cancelled")
+        except Exception as exc:
+            logger.error(
+                "OutputController response drain loop crashed: %s",
+                exc, exc_info=True,
             )
 
     async def _emit_playback_state(

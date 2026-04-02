@@ -178,12 +178,23 @@ def say(text: str, voice: str = DEFAULT_VOICE):
     subprocess.run(["say", "-v", voice, text], check=True)
 
 
+def say_async(text: str, voice: str = DEFAULT_VOICE) -> subprocess.Popen:
+    """Start macOS say in background, return Popen handle."""
+    return subprocess.Popen(["say", "-v", voice, text])
+
+
+def poll_logs_once(log_offset: int, timeline: Timeline) -> int:
+    """Single-pass log poll (no sleep loop). Returns new offset."""
+    new_text, log_offset = read_new_logs(log_offset)
+    if new_text:
+        scan_log_lines(new_text, timeline)
+    return log_offset
+
+
 def poll_logs(log_offset: int, duration: float, timeline: Timeline) -> int:
     deadline = time.monotonic() + duration
     while time.monotonic() < deadline:
-        new_text, log_offset = read_new_logs(log_offset)
-        if new_text:
-            scan_log_lines(new_text, timeline)
+        log_offset = poll_logs_once(log_offset, timeline)
         time.sleep(0.3)
     return log_offset
 
@@ -278,21 +289,59 @@ def run_demo(
     # Phase 3b: Run conversation
     tl.add(f"Starting conversation ({len(conversation)} turns)")
 
+    prev_turn_start_t: float = 0.0
+    barge_in_turns: list[dict] = []  # track for verification
+
     for i, turn in enumerate(conversation):
         utterance = turn["text"]
         wait_time = turn["wait"]
+        is_barge_in = turn.get("barge_in", False)
+        delay_from_prev_start = turn.get("delay_from_prev_start")
         turn_label = f"Turn {i+1}/{len(conversation)}"
+
+        if is_barge_in and delay_from_prev_start is not None and prev_turn_start_t > 0:
+            # Timer-based scheduling: wait until target fire time
+            target_t = prev_turn_start_t + delay_from_prev_start
+            wait_secs = max(0, target_t - time.monotonic())
+            if wait_secs > 0:
+                print(f"\n  [BARGE-IN] Waiting {wait_secs:.1f}s to fire turn {i+1}...")
+                # Keep polling logs while waiting
+                deadline = time.monotonic() + wait_secs
+                while time.monotonic() < deadline:
+                    log_offset = poll_logs_once(log_offset, tl)
+                    time.sleep(min(0.3, deadline - time.monotonic()))
+
+        barge_label = " [BARGE-IN]" if is_barge_in else ""
         print(f"\n{'─' * 60}")
-        print(f"  [{turn_label}] \"{utterance}\"")
+        print(f"  [{turn_label}]{barge_label} \"{utterance}\"")
         print(f"{'─' * 60}")
 
         say_start = time.monotonic()
-        tl.add(f"SAY [{turn_label}]: \"{utterance}\"", at=say_start)
-        say(utterance, voice=voice)
-        say_end = time.monotonic()
-        tl.add(f"SAY done ({(say_end - say_start)*1000:.0f}ms)", at=say_end)
+        prev_turn_start_t = say_start
+        tl.add(f"SAY [{turn_label}]{barge_label}: \"{utterance}\"", at=say_start)
 
-        log_offset = poll_logs(log_offset, wait_time, tl)
+        if is_barge_in:
+            # Non-blocking: fire say and continue polling
+            proc = say_async(utterance, voice=voice)
+            barge_in_turns.append({
+                "turn_index": i,
+                "say_start_t": say_start,
+                "expect_interrupt": turn.get("expect_interrupt", False),
+                "min_interrupt_delay_ms": turn.get("min_interrupt_delay_ms"),
+            })
+            # Poll logs while say is running + wait_time after
+            while proc.poll() is None:
+                log_offset = poll_logs_once(log_offset, tl)
+                time.sleep(0.3)
+            say_end = time.monotonic()
+            tl.add(f"SAY done ({(say_end - say_start)*1000:.0f}ms)", at=say_end)
+            log_offset = poll_logs(log_offset, wait_time, tl)
+        else:
+            # Blocking (sequential): original behavior
+            say(utterance, voice=voice)
+            say_end = time.monotonic()
+            tl.add(f"SAY done ({(say_end - say_start)*1000:.0f}ms)", at=say_end)
+            log_offset = poll_logs(log_offset, wait_time, tl)
 
     # Phase 4: Drain remaining events
     tl.add(f"Conversation done, waiting {final_wait}s for trailing responses...")
@@ -303,6 +352,45 @@ def run_demo(
         scan_log_lines(final_text, tl)
 
     tl.add("Demo complete")
+
+    # Barge-in verification
+    if barge_in_turns:
+        print("\n")
+        print("=" * 70)
+        print("BARGE-IN VERIFICATION")
+        print("=" * 70)
+        for bt in barge_in_turns:
+            idx = bt["turn_index"]
+            say_t = bt["say_start_t"] - tl.t0_mono
+            print(f"\n  Turn {idx+1} (barge-in, SAY at {say_t:.1f}s):")
+            # Find interrupt events after this SAY
+            interrupt_events = [
+                (t, desc) for t, desc in tl.events
+                if "INTERRUPT:" in desc and t >= say_t
+            ]
+            if interrupt_events:
+                int_t, int_desc = interrupt_events[0]
+                latency_s = int_t - say_t
+                print(f"    [PASS] Interrupt fired at {int_t:.1f}s ({latency_s:.1f}s after SAY)")
+                if bt["min_interrupt_delay_ms"] is not None:
+                    max_s = bt["min_interrupt_delay_ms"] / 1000.0
+                    if latency_s <= max_s:
+                        print(f"    [PASS] Within {bt['min_interrupt_delay_ms']}ms threshold")
+                    else:
+                        print(f"    [FAIL] Interrupt took {latency_s*1000:.0f}ms > {bt['min_interrupt_delay_ms']}ms")
+                # Check for playback cut
+                cut_events = [
+                    (t, d) for t, d in tl.events
+                    if "playback cut" in d.lower() and t >= say_t
+                ]
+                if cut_events:
+                    print(f"    [PASS] Playback cut: {cut_events[0][1]}")
+            elif bt["expect_interrupt"]:
+                print(f"    [FAIL] No interrupt event found after SAY")
+            else:
+                print(f"    [INFO] No interrupt (not expected)")
+    else:
+        print("\n  No barge-in turns to verify.")
 
     # Save log snapshot
     output_dir = Path(__file__).parent / "output"

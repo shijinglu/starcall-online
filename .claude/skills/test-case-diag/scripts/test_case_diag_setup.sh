@@ -5,6 +5,7 @@ GIT_ROOT=$(git root)
 BACKEND_DIR="$GIT_ROOT/backend"
 HEALTH_URL="http://localhost:8000/health"
 
+echo '' > "$BACKEND_DIR/logs/app.log"
 echo "Checking backend health at $HEALTH_URL ..."
 
 if curl -s -o /dev/null -w "" --max-time 3 "$HEALTH_URL" 2>/dev/null; then

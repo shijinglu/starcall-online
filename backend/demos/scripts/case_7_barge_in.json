@@ -1,0 +1,18 @@
+{
+  "name": "Barge-in: simple mid-response interrupt",
+  "description": "User asks for a long agent report, then interrupts mid-playback with a simpler request.",
+  "final_wait": 15,
+  "conversation": [
+    {"text": "hello", "wait": 8},
+    {"text": "Ellen, give me a detailed report on yesterday's transaction anomalies.", "wait": 15},
+    {
+      "text": "Hold on, just the top 3 by dollar amount.",
+      "barge_in": true,
+      "delay_from_prev_start": 5.0,
+      "expect_interrupt": true,
+      "min_interrupt_delay_ms": 3000,
+      "wait": 12
+    },
+    {"text": "Thanks, that's all.", "wait": 8}
+  ]
+}

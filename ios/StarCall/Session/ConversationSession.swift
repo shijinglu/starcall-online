@@ -61,6 +61,15 @@ final class ConversationSession: NSObject {
     /// Error message from the last failure.
     private(set) var errorMessage: String?
 
+    // MARK: - Time-Based Audio Gate
+    /// Absolute time when the playback gate should reopen.
+    /// Audio chunks are dropped while CFAbsoluteTimeGetCurrent() < gateEndTime.
+    /// This replaces the isPlaying-based gate which suffered from AVAudioPlayerNode
+    /// keeping isPlaying=true after buffers finish.
+    private var gateEndTime: CFAbsoluteTime = 0
+    /// Extra margin after last audio chunk before gate reopens (seconds).
+    private let gateMargin: Double = 0.3
+
     // MARK: - Echo Diagnostics
     /// Track chunks sent to backend during playback vs silence.
     private var diagChunksSentDuringPlayback: Int = 0
@@ -229,13 +238,19 @@ final class ConversationSession: NSObject {
             return
         }
 
-        currentGen = currentGen &+ 1
-        Log.info("DIAG: handleBargein firing, newGen=\(currentGen) thread=\(Thread.current)", tag: "ConversationSession")
+        // Don't bump currentGen locally — the server is authoritative on gen_id.
+        // Bumping here causes gen desync: iOS discards all new backend audio as
+        // "stale" because the backend never saw the interrupt or hasn't incremented yet.
+        // Instead, just flush current playback and send the interrupt request.
+        // The server will respond with {"type":"interruption","gen_id":N} and
+        // handleInterruptionConfirmed() will update currentGen.
+        Log.info("DIAG: handleBargein firing, currentGen=\(currentGen) (not incrementing) thread=\(Thread.current)", tag: "ConversationSession")
         playbackEngine.flushAllAndStop(newGen: currentGen)
         audioCaptureEngine.isPlaying = false
+        gateEndTime = 0  // Immediately reopen the time-based gate on barge-in
         transport.sendJSON(["type": "interrupt", "mode": "cancel_all"])
         delegate?.sessionDidReceiveBargeIn(currentGenId: Int(currentGen))
-        Log.info("DIAG: handleBargein complete, isPlaying reset to false", tag: "ConversationSession")
+        Log.info("DIAG: handleBargein complete, isPlaying reset to false, gate reopened", tag: "ConversationSession")
     }
 
     /// Handle server-side interruption confirmation.
@@ -253,6 +268,7 @@ final class ConversationSession: NSObject {
         // Flush playback with server's gen_id to discard stale audio.
         playbackEngine.flushAllAndStop(newGen: currentGen)
         audioCaptureEngine.isPlaying = false
+        gateEndTime = 0  // Immediately reopen the time-based gate
         delegate?.sessionDidReceiveBargeIn(currentGenId: Int(currentGen))
     }
 
@@ -379,6 +395,15 @@ extension ConversationSession: WebSocketTransportDelegate {
         let pcm = Data(data.dropFirst(AudioFrameHeader.size))
         diagBinaryFramesReceived += 1
         diagLastBinaryFrameTime = CFAbsoluteTimeGetCurrent()
+
+        // Extend the time-based audio gate: each incoming audio chunk adds its
+        // duration to the gate end time so the gate stays closed until all
+        // enqueued audio finishes playing. Margin is applied only in the gate
+        // check, not per-chunk, to avoid accumulating excess gate time.
+        let chunkDuration = Double(pcm.count) / (16000.0 * 2.0)  // 16kHz int16 mono
+        let now = CFAbsoluteTimeGetCurrent()
+        gateEndTime = max(gateEndTime, now) + chunkDuration
+
         let wasPlaying = audioCaptureEngine.isPlaying
         playbackEngine.receiveAudioFrame(header: header, pcm: pcm)
 
@@ -471,37 +496,28 @@ extension ConversationSession: AudioCaptureEngineDelegate {
             return
         }
 
-        let isCurrentlyPlaying = audioCaptureEngine.isPlaying
+        // Time-based audio gate: drop audio while TTS is expected to be playing.
+        // This replaces the isPlaying-based gate which suffered from
+        // AVAudioPlayerNode.isPlaying staying true after buffers finish.
+        let now = CFAbsoluteTimeGetCurrent()
+        let isGateClosed = now < gateEndTime + gateMargin
 
         // DIAG: log gate state transitions
-        if isCurrentlyPlaying != diagLastIsPlayingState {
-            let now = CFAbsoluteTimeGetCurrent()
-            if isCurrentlyPlaying {
+        if isGateClosed != diagLastIsPlayingState {
+            if isGateClosed {
                 diagGateClosedTime = now
                 diagConsecutiveDrops = 0
             }
-            let gateDuration = (!isCurrentlyPlaying && diagGateClosedTime > 0) ? now - diagGateClosedTime : 0
-            Log.info("DIAG-GATE: audio gate \(isCurrentlyPlaying ? "CLOSED (dropping chunks)" : "OPEN (sending chunks)") skipped=\(diagChunksSentDuringPlayback) sent=\(diagChunksSentDuringSilence) isAnyPlaying=\(playbackEngine.isAnyPlaying) speakerFinishedCallbacks=\(diagSpeakerFinishedCount) gateDuration=\(String(format: "%.2f", gateDuration))s", tag: "ConversationSession")
-            diagLastIsPlayingState = isCurrentlyPlaying
+            let gateDuration = (!isGateClosed && diagGateClosedTime > 0) ? now - diagGateClosedTime : 0
+            Log.info("DIAG-GATE: audio gate \(isGateClosed ? "CLOSED (dropping chunks)" : "OPEN (sending chunks)") skipped=\(diagChunksSentDuringPlayback) sent=\(diagChunksSentDuringSilence) gateRemaining=\(String(format: "%.2f", max(0, gateEndTime - now)))s gateDuration=\(String(format: "%.2f", gateDuration))s", tag: "ConversationSession")
+            diagLastIsPlayingState = isGateClosed
         }
 
-        // Gate: Do NOT send audio to Gemini while TTS is playing.
-        // Even with hardware AEC, residual echo (20-40% of chunks at 15-20 dB)
-        // reaches Gemini's server-side VAD which transcribes it as user speech.
-        // Barge-in still works: local RMS detector fires → handleBargein() →
-        // flushes playback → isPlaying becomes false → audio flows again.
-        if isCurrentlyPlaying {
+        if isGateClosed {
             diagChunksSentDuringPlayback += 1
             diagConsecutiveDrops += 1
             if diagChunksSentDuringPlayback == 1 || diagChunksSentDuringPlayback % 100 == 0 {
-                Log.info("DIAG-GATE: chunk DROPPED #\(diagChunksSentDuringPlayback) (isPlaying=true, isAnyPlaying=\(playbackEngine.isAnyPlaying))", tag: "ConversationSession")
-            }
-            // DIAG: Stuck gate detector — if gate closed for >3s with no new audio frames, dump state
-            let now = CFAbsoluteTimeGetCurrent()
-            let gateAge = diagGateClosedTime > 0 ? now - diagGateClosedTime : 0
-            let silenceSinceLastFrame = diagLastBinaryFrameTime > 0 ? now - diagLastBinaryFrameTime : 0
-            if diagConsecutiveDrops == 30 || (diagConsecutiveDrops > 0 && diagConsecutiveDrops % 50 == 0) {
-                Log.warning("DIAG-STUCK: gate closed for \(String(format: "%.1f", gateAge))s, \(diagConsecutiveDrops) chunks dropped, no audio frame for \(String(format: "%.1f", silenceSinceLastFrame))s, isAnyPlaying=\(playbackEngine.isAnyPlaying) currentSpeaker=\(playbackEngine.currentlyPlayingSpeaker.map(String.init) ?? "nil") speakerFinishedCallbacks=\(diagSpeakerFinishedCount)", tag: "ConversationSession")
+                Log.info("DIAG-GATE: chunk DROPPED #\(diagChunksSentDuringPlayback) gateRemaining=\(String(format: "%.2f", gateEndTime - now))s", tag: "ConversationSession")
             }
             // Still update UI amplitude but don't send to backend.
             let samples = data.withUnsafeBytes { rawBuffer -> [Int16] in

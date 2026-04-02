@@ -43,6 +43,11 @@ final class AudioCaptureEngine {
                 return old
             }
             if oldValue != newValue {
+                if newValue {
+                    playbackStartTime = ProcessInfo.processInfo.systemUptime
+                } else {
+                    playbackStartTime = 0
+                }
                 let threadName = Thread.current.isMainThread ? "main" : (Thread.current.name ?? "bg-\(Thread.current)")
                 Log.info("DIAG-ISPLAYING: \(oldValue)->\(newValue) thread=\(threadName)", tag: "AudioCaptureEngine")
             }
@@ -58,14 +63,22 @@ final class AudioCaptureEngine {
     /// EMA smoothing factor for noise floor updates.
     private let noiseFloorAlpha: Float = 0.1
     /// dB above the noise floor required to trigger a barge-in.
-    /// Raised from 15 to 25: AEC residual peaks at ~20 dB, real speech at 28-35 dB.
-    private let bargeInThresholdDB: Float = 25.0
+    /// AEC residual measured up to ~29 dB on physical device. Real speech is 28-35 dB.
+    /// Set to 30 dB to avoid false barge-in from AEC residual while still catching speech.
+    private let bargeInThresholdDB: Float = 30.0
 
     /// Minimum interval between barge-in triggers (seconds).
     /// Prevents the ~10/s spam observed when speaker bleed keeps RMS above threshold.
     private let bargeInCooldown: TimeInterval = 1.0
     /// Timestamp of the last barge-in event.
     private var lastBargeInTime: TimeInterval = 0
+
+    /// Minimum time (seconds) after playback starts before barge-in can fire.
+    /// AEC residual spikes in the first ~500ms of playback; this grace period
+    /// prevents false barge-in without reducing sensitivity to real speech.
+    private let bargeInPlaybackGrace: TimeInterval = 0.8
+    /// Timestamp when isPlaying last transitioned to true.
+    private var playbackStartTime: TimeInterval = 0
 
     // MARK: - Diagnostics
     /// Total barge-in fire count for this session.
@@ -262,11 +275,16 @@ final class AudioCaptureEngine {
         // Dispatch off the audio render thread — calling AVAudioPlayerNode.stop()
         // from within a tap callback deadlocks the audio I/O thread.
         // Debounce: only fire once per bargeInCooldown to avoid spamming cancel_all.
-        if isPlaying {
+        // Grace period: skip barge-in in the first bargeInPlaybackGrace seconds of
+        // playback to let AEC settle (residual spikes up to ~29 dB initially).
+        if isPlaying, playbackStartTime > 0 {
             let rmsDB = 20 * log10(rms / max(noiseFloor, 1e-10))
-            if rmsDB > bargeInThresholdDB && (now - lastBargeInTime) >= bargeInCooldown {
+            let playbackAge = now - playbackStartTime
+            if rmsDB > bargeInThresholdDB
+                && playbackAge >= bargeInPlaybackGrace
+                && (now - lastBargeInTime) >= bargeInCooldown {
                 bargeinFireCount += 1
-                Log.info("DIAG-ECHO: BARGEIN_FIRED #\(bargeinFireCount) rms=\(rms) rmsDB=\(rmsDB)", tag: "AudioCaptureEngine")
+                Log.info("DIAG-ECHO: BARGEIN_FIRED #\(bargeinFireCount) rms=\(rms) rmsDB=\(rmsDB) playbackAge=\(String(format: "%.2f", playbackAge))s", tag: "AudioCaptureEngine")
                 lastBargeInTime = now
                 DispatchQueue.main.async { [weak self] in
                     self?.delegate?.audioCaptureDidDetectBargein()

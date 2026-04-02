@@ -1,23 +1,23 @@
 {
   "name": "Case 4: Quick lookup, moderator-only",
   "description": "User asks time zone questions and sets a reminder. No deep agent dispatched.",
-  "final_wait": 5,
+  "final_wait": 10,
   "conversation": [
     {
       "text": "Hello, there",
-      "wait": 6
+      "wait": 10
     },
     {
       "text": "what time is it in london right now?",
-      "wait": 8
+      "wait": 10
     },
     {
       "text": "and what about tokyo?",
-      "wait": 8
+      "wait": 10
     },
     {
       "text": "thanks, set a reminder for me to join a call at 9 AM tokyo time",
-      "wait": 10
+      "wait": 12
     }
   ]
 }

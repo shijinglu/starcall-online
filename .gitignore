@@ -441,3 +441,6 @@ local/
 
 # Demo output artifacts
 backend/demos/output/
+
+# Git worktrees
+.worktrees/

@@ -25,13 +25,14 @@ final class HTTPClient {
     /// - Parameter serverURL: Base URL of the backend server.
     /// - Returns: Tuple of (sessionId, authToken).
     /// - Throws: Network or decoding errors.
-    func createSession(serverURL: URL = HTTPClient.defaultServerURL) async throws -> (sessionId: String, authToken: String) {
+    func createSession(serverURL: URL = HTTPClient.defaultServerURL, listenerMode: Bool = false) async throws -> (sessionId: String, authToken: String) {
         let url = serverURL.appendingPathComponent("api/v1/sessions")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["listener_mode": listenerMode])
 
-        Log.info("POST \(url)", tag: "HTTPClient")
+        Log.info("POST \(url) listenerMode=\(listenerMode)", tag: "HTTPClient")
         let (data, response) = try await urlSession.data(for: request)
         let bodyStr = String(data: data, encoding: .utf8) ?? "<non-utf8>"
 

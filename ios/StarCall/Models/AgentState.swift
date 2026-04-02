@@ -1,5 +1,11 @@
 import Foundation
 
+/// Conversation mode: talk (full voice) or listen (silent meeting assistant).
+enum SessionMode: String {
+    case talk
+    case listen
+}
+
 /// Session lifecycle states.
 enum SessionState: String {
     case idle

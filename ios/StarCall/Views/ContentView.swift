@@ -81,11 +81,12 @@ public struct ContentView: View {
         case .connecting:
             return "CONNECTING"
         case .active:
+            let modeLabel = viewModel.sessionMode == .listen ? "LISTENER" : "LIVE"
             let agentCount = viewModel.agentStatuses.count
             if agentCount > 0 {
-                return "LIVE · \(agentCount) AGENTS"
+                return "\(modeLabel) · \(agentCount) AGENTS"
             }
-            return "LIVE"
+            return modeLabel
         }
     }
 
@@ -149,7 +150,15 @@ public struct ContentView: View {
             Text(autoStartCountdown != nil ? "Auto-starting session..." : "Tap the mic to start a session")
                 .font(.system(size: 13))
                 .foregroundColor(StarClTheme.labelText)
-                .padding(.bottom, 20)
+                .padding(.bottom, 12)
+
+            // Mode picker: Talk (full voice) or Listen (silent meeting assistant)
+            Picker("Mode", selection: $viewModel.sessionMode) {
+                Text("Talk").tag(SessionMode.talk)
+                Text("Listen").tag(SessionMode.listen)
+            }
+            .pickerStyle(.segmented)
+            .padding(.bottom, 20)
 
             Text("RECENT SESSIONS")
                 .font(.system(size: 10))
@@ -312,7 +321,12 @@ public struct ContentView: View {
                         )
                         .overlay(
                             Group {
-                                if isSessionActive && !viewModel.isMuted {
+                                if isSessionActive && viewModel.sessionMode == .listen {
+                                    // Ear icon (listener mode active)
+                                    Image(systemName: "ear.fill")
+                                        .font(.system(size: 20))
+                                        .foregroundColor(StarClTheme.teal)
+                                } else if isSessionActive && !viewModel.isMuted {
                                     // Wave bars (active + unmuted)
                                     WaveBarsView()
                                 } else if isSessionActive && viewModel.isMuted {
@@ -320,6 +334,11 @@ public struct ContentView: View {
                                     Image(systemName: "mic.slash.fill")
                                         .font(.system(size: 20))
                                         .foregroundColor(StarClTheme.muteRed)
+                                } else if viewModel.sessionMode == .listen {
+                                    // Ear icon (idle, listener mode selected)
+                                    Image(systemName: "ear")
+                                        .font(.system(size: 20))
+                                        .foregroundColor(StarClTheme.teal)
                                 } else {
                                     // Mic icon (idle)
                                     Image(systemName: "mic.fill")

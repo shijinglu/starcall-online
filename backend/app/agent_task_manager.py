@@ -276,42 +276,59 @@ class AgentTaskManager:
                     len(full_text),
                     full_text,
                 )
-                rephrase_start = time.time()
-                spoken_text = await rephrase_for_tts(full_text)
-                logger.info(
-                    "DIAG _run_agent [%s]: rephrase took %.1fs, "
-                    "before=%d chars, after=%d chars, spoken_preview=%.300s",
-                    agent_session.agent_name,
-                    time.time() - rephrase_start,
-                    len(full_text),
-                    len(spoken_text),
-                    spoken_text,
-                )
 
-                # Persist agent response to conversation history at enqueue time
-                # (even if later flushed, agents have full context)
-                conv_session.transcript_history.append(
-                    {"speaker": agent_session.agent_name, "text": spoken_text}
-                )
-
-                # Deliver via Response Queue (TTS-when-idle)
-                if conv_session.output_controller:
-                    conv_session.output_controller.enqueue_response(
-                        agent_name=agent_session.agent_name,
-                        spoken_text=spoken_text,
-                        raw_text=full_text,
-                        gen_id=conv_session.gen_id,
+                if conv_session.listener_mode:
+                    # Listener mode: send full text directly, skip TTS
+                    conv_session.transcript_history.append(
+                        {"speaker": agent_session.agent_name, "text": full_text}
                     )
-                elif self.send_agent_audio:
-                    # Fallback for tests without OutputController: direct TTS
-                    pcm = await self._tts.synthesize(
-                        spoken_text, agent_session.agent_name
-                    )
-                    if pcm:
-                        await self.send_agent_audio(
-                            conv_session, agent_session.agent_name, pcm,
-                            agent_session.next_frame_seq()
+                    if self.send_json:
+                        await self.send_json(
+                            conv_session,
+                            {
+                                "type": "transcript",
+                                "speaker": agent_session.agent_name,
+                                "text": full_text,
+                                "is_final": True,
+                            },
                         )
+                else:
+                    rephrase_start = time.time()
+                    spoken_text = await rephrase_for_tts(full_text)
+                    logger.info(
+                        "DIAG _run_agent [%s]: rephrase took %.1fs, "
+                        "before=%d chars, after=%d chars, spoken_preview=%.300s",
+                        agent_session.agent_name,
+                        time.time() - rephrase_start,
+                        len(full_text),
+                        len(spoken_text),
+                        spoken_text,
+                    )
+
+                    # Persist agent response to conversation history at enqueue time
+                    # (even if later flushed, agents have full context)
+                    conv_session.transcript_history.append(
+                        {"speaker": agent_session.agent_name, "text": spoken_text}
+                    )
+
+                    # Deliver via Response Queue (TTS-when-idle)
+                    if conv_session.output_controller:
+                        conv_session.output_controller.enqueue_response(
+                            agent_name=agent_session.agent_name,
+                            spoken_text=spoken_text,
+                            raw_text=full_text,
+                            gen_id=conv_session.gen_id,
+                        )
+                    elif self.send_agent_audio:
+                        # Fallback for tests without OutputController: direct TTS
+                        pcm = await self._tts.synthesize(
+                            spoken_text, agent_session.agent_name
+                        )
+                        if pcm:
+                            await self.send_agent_audio(
+                                conv_session, agent_session.agent_name, pcm,
+                                agent_session.next_frame_seq()
+                            )
 
             agent_session.status = "idle"
             if self.send_json:
@@ -387,13 +404,26 @@ class AgentTaskManager:
 
         fallback = FALLBACK_PHRASES.get(agent_session.agent_name, "Request timed out.")
 
-        pcm = await self._tts.synthesize(fallback, agent_session.agent_name)
-        if pcm:
-            if conv_session.output_controller:
-                conv_session.output_controller.enqueue_agent_audio(
-                    agent_session.agent_name, pcm, conv_session.gen_id
+        if conv_session.listener_mode:
+            # Listener mode: send fallback as text, skip TTS
+            if self.send_json:
+                await self.send_json(
+                    conv_session,
+                    {
+                        "type": "transcript",
+                        "speaker": agent_session.agent_name,
+                        "text": fallback,
+                        "is_final": True,
+                    },
                 )
-            elif self.send_agent_audio:
-                await self.send_agent_audio(
-                    conv_session, agent_session.agent_name, pcm, frame_seq=0
-                )
+        else:
+            pcm = await self._tts.synthesize(fallback, agent_session.agent_name)
+            if pcm:
+                if conv_session.output_controller:
+                    conv_session.output_controller.enqueue_agent_audio(
+                        agent_session.agent_name, pcm, conv_session.gen_id
+                    )
+                elif self.send_agent_audio:
+                    await self.send_agent_audio(
+                        conv_session, agent_session.agent_name, pcm, frame_seq=0
+                    )

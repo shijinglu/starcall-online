@@ -65,6 +65,8 @@ class ConversationSession:
     # Output controller (single-writer audio serialization)
     output_controller: Any = None  # OutputController, set during WS connect
 
+    listener_mode: bool = False  # silent meeting assistant mode (text-only, no TTS)
+
     last_activity: float = field(default_factory=time.time)
     session_ttl: float = 7200.0  # 2 hours
 

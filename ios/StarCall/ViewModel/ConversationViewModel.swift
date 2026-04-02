@@ -10,6 +10,7 @@ final class ConversationViewModel: ObservableObject {
 
     // MARK: - Published State
 
+    @Published var sessionMode: SessionMode = .talk
     @Published var sessionState: SessionState = .idle
     @Published var transcript: [TranscriptLine] = []
     @Published var agentStatuses: [String: AgentStatusKind] = [:]
@@ -50,7 +51,7 @@ final class ConversationViewModel: ObservableObject {
 
         Task {
             do {
-                try await session.start()
+                try await session.start(listenerMode: sessionMode == .listen)
                 sessionState = .active
                 errorMessage = nil
             } catch {

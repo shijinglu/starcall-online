@@ -58,6 +58,9 @@ final class ConversationSession: NSObject {
     /// Whether microphone input is muted (audio capture continues but chunks are not sent).
     private(set) var isMuted: Bool = false
 
+    /// Listener mode: silent meeting assistant (no audio playback, text-only results).
+    private(set) var listenerMode: Bool = false
+
     /// Frame sequence counter for outbound audio chunks.
     private var frameSeq: UInt8 = 0
 
@@ -123,14 +126,15 @@ final class ConversationSession: NSObject {
         state = .idle
     }
 
-    func start() async throws {
+    func start(listenerMode: Bool = false) async throws {
         guard state == .idle else { return }
+        self.listenerMode = listenerMode
         state = .connecting
-        Log.info("Starting session, baseURL=\(baseURL)", tag: "ConversationSession")
+        Log.info("Starting session, baseURL=\(baseURL), listenerMode=\(listenerMode)", tag: "ConversationSession")
 
         do {
             // 1. Create session via REST.
-            let (newSessionId, authToken) = try await httpClient.createSession(serverURL: baseURL)
+            let (newSessionId, authToken) = try await httpClient.createSession(serverURL: baseURL, listenerMode: listenerMode)
             self.sessionId = newSessionId
             Log.info("Session created: \(newSessionId)", tag: "ConversationSession")
 
@@ -418,6 +422,9 @@ final class ConversationSession: NSObject {
 extension ConversationSession: WebSocketTransportDelegate {
 
     func transportDidReceiveBinaryFrame(_ data: Data) {
+        // Listener mode: silently discard all incoming audio frames.
+        if listenerMode { return }
+
         let frameStart = CFAbsoluteTimeGetCurrent()
         guard let header = AudioFrameHeader(data: data) else {
             Log.warning("DIAG: transportDidReceiveBinaryFrame invalid header, dataSize=\(data.count)", tag: "ConversationSession")
@@ -485,7 +492,7 @@ extension ConversationSession: WebSocketTransportDelegate {
         guard state == .active else { return }
         Task {
             do {
-                let (newSessionId, newToken) = try await httpClient.createSession(serverURL: baseURL)
+                let (newSessionId, newToken) = try await httpClient.createSession(serverURL: baseURL, listenerMode: listenerMode)
                 self.sessionId = newSessionId
                 let wsURL = buildWebSocketURL()
                 transport.connect(token: newToken, serverURL: wsURL)
@@ -510,6 +517,8 @@ extension ConversationSession: WebSocketTransportDelegate {
 extension ConversationSession: AudioCaptureEngineDelegate {
 
     func audioCaptureDidDetectBargein() {
+        // Listener mode: no playback to interrupt, skip barge-in entirely.
+        guard !listenerMode else { return }
         // When muted, ignore barge-in — the user muted their mic,
         // so any RMS spike is speaker bleed, not intentional speech.
         // TTS playback should continue uninterrupted.
@@ -533,8 +542,9 @@ extension ConversationSession: AudioCaptureEngineDelegate {
         // Time-based audio gate: drop audio while TTS is expected to be playing.
         // This replaces the isPlaying-based gate which suffered from
         // AVAudioPlayerNode.isPlaying staying true after buffers finish.
+        // Listener mode: gate is always open (no playback).
         let now = CFAbsoluteTimeGetCurrent()
-        let isGateClosed = now < gateEndTime + gateMargin
+        let isGateClosed = listenerMode ? false : now < gateEndTime + gateMargin
 
         // DIAG: log gate state transitions
         if isGateClosed != diagLastGateState {

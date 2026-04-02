@@ -83,7 +83,20 @@ class GeminiLiveProxy:
         )
         system_prompt = build_system_prompt(self._registry)
 
-        config = types.LiveConnectConfig(
+        # Listener mode: text-only responses, passive meeting assistant
+        if conv_session.listener_mode:
+            system_prompt += (
+                "\n\nLISTENER MODE ACTIVE: You are in a meeting as a silent "
+                "assistant. Do NOT address the user directly or respond "
+                "conversationally. Listen to the meeting conversation and "
+                "dispatch agents when you detect questions or topics that "
+                "need analysis. When you dispatch an agent, respond with a "
+                "brief text acknowledgment only (e.g., 'Dispatching Eva to "
+                "check risk exposure.'). Do not attempt to answer questions "
+                "yourself unless they are trivially simple."
+            )
+
+        config_kwargs: dict = dict(
             system_instruction=types.Content(parts=[types.Part(text=system_prompt)]),
             tools=[
                 types.Tool(
@@ -93,16 +106,19 @@ class GeminiLiveProxy:
                     ]
                 )
             ],
-            response_modalities=["AUDIO"],
+            response_modalities=["TEXT"] if conv_session.listener_mode else ["AUDIO"],
             thinking_config=types.ThinkingConfig(thinking_level="MINIMAL"),
             input_audio_transcription=types.AudioTranscriptionConfig(),
-            output_audio_transcription=types.AudioTranscriptionConfig(),
             context_window_compression=types.ContextWindowCompressionConfig(
                 trigger_tokens=80000,
                 sliding_window=types.SlidingWindow(target_tokens=40000),
             ),
             session_resumption=types.SessionResumptionConfig(),
         )
+        if not conv_session.listener_mode:
+            config_kwargs["output_audio_transcription"] = types.AudioTranscriptionConfig()
+
+        config = types.LiveConnectConfig(**config_kwargs)
 
         sid = conv_session.session_id
         self._gemini_clients[sid] = client

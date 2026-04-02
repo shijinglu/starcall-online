@@ -6,9 +6,14 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from app.session_manager import SessionManager
+
+
+class CreateSessionRequest(BaseModel):
+    listener_mode: bool = False
 
 router = APIRouter(prefix="/api/v1", tags=["sessions"])
 
@@ -22,12 +27,13 @@ def init_sessions_router(session_manager: "SessionManager") -> None:
 
 
 @router.post("/sessions")
-async def create_session():
+async def create_session(request: CreateSessionRequest | None = None):
     """Create a new conversation session.
 
     Returns session_id, auth_token, and token expiration.
     """
-    session = await _session_manager.create_session()
+    listener_mode = request.listener_mode if request else False
+    session = await _session_manager.create_session(listener_mode=listener_mode)
     expires_at = datetime.fromtimestamp(session.token_expires_at, tz=timezone.utc)
     return {
         "session_id": session.session_id,

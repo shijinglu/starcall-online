@@ -35,11 +35,14 @@ class SessionManager:
         if self._cleanup_task is None or self._cleanup_task.done():
             self._cleanup_task = asyncio.create_task(self._cleanup_loop())
 
-    async def create_session(self) -> ConversationSession:
+    async def create_session(
+        self, *, listener_mode: bool = False
+    ) -> ConversationSession:
         """Allocate a new session, generate auth_token, store in dict."""
         session = ConversationSession(
             token_expires_at=time.time() + AUTH_TOKEN_TTL_SECONDS,
             session_ttl=SESSION_TTL_SECONDS,
+            listener_mode=listener_mode,
         )
         self._sessions[session.session_id] = session
         self._token_index[session.auth_token] = session.session_id

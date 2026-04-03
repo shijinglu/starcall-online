@@ -21,7 +21,7 @@ SESSION_TTL_SECONDS: float = float(os.getenv("SESSION_TTL_SECONDS", "7200"))
 AUTH_TOKEN_TTL_SECONDS: float = float(os.getenv("AUTH_TOKEN_TTL_SECONDS", "300"))
 
 # --- Agent task config ---
-AGENT_TASK_TIMEOUT_SECONDS: float = float(os.getenv("AGENT_TASK_TIMEOUT_SECONDS", "120"))
+AGENT_TASK_TIMEOUT_SECONDS: float = float(os.getenv("AGENT_TASK_TIMEOUT_SECONDS", "3600"))
 THINKING_HEARTBEAT_INTERVAL_SECONDS: float = float(
     os.getenv("THINKING_HEARTBEAT_INTERVAL_SECONDS", "10")
 )
@@ -43,7 +43,7 @@ GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-native-audio-lat
 CLEANUP_INTERVAL_SECONDS: float = float(os.getenv("CLEANUP_INTERVAL_SECONDS", "60"))
 
 # --- Max tool-use rounds per Claude invocation ---
-MAX_TOOL_ROUNDS: int = int(os.getenv("MAX_TOOL_ROUNDS", "10"))
+MAX_TOOL_ROUNDS: int = int(os.getenv("MAX_TOOL_ROUNDS", "200"))
 
 # --- Agent SDK ---
 MAX_AGENT_BUDGET_USD: float = float(os.getenv("MAX_AGENT_BUDGET_USD", "5.0"))

@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 # Gemini tool declarations (injected into the Gemini Live session)
 # ---------------------------------------------------------------------------
 
+# Backward-compat constant for tests that import DISPATCH_AGENT_TOOL directly.
+# Production code should use build_dispatch_agent_tool() for dynamic agent names.
 DISPATCH_AGENT_TOOL = {
     "name": "dispatch_agent",
     "description": "Delegate a task to a named deep-thinking agent. Use for first contact.",
@@ -25,7 +27,6 @@ DISPATCH_AGENT_TOOL = {
         "properties": {
             "name": {
                 "type": "string",
-                "enum": ["ellen", "shijing", "eva", "ming"],
                 "description": "Agent to dispatch",
             },
             "task": {
@@ -36,6 +37,30 @@ DISPATCH_AGENT_TOOL = {
         "required": ["name", "task"],
     },
 }
+
+
+def build_dispatch_agent_tool(agent_registry: "AgentRegistry") -> dict:
+    """Build dispatch_agent tool declaration with dynamic agent names from registry."""
+    agent_names = list(agent_registry.entries.keys())
+    return {
+        "name": "dispatch_agent",
+        "description": "Delegate a task to a named deep-thinking agent. Use for first contact.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "enum": agent_names,
+                    "description": "Agent to dispatch",
+                },
+                "task": {
+                    "type": "string",
+                    "description": "Full task description for the agent",
+                },
+            },
+            "required": ["name", "task"],
+        },
+    }
 
 RESUME_AGENT_TOOL = {
     "name": "resume_agent",
@@ -69,9 +94,15 @@ by CALLING the dispatch_agent tool. You MUST use the function-calling API — \
 never say or output the tool name or arguments as text.
 - For follow-up questions to an existing agent session, CALL the resume_agent tool.
 - Acknowledge delegations immediately with a brief, natural phrase \
-("Ellen is on it!", "Let me check with Ming.").
+("Zhuoyang is looking into it!", "Let me check with Ming.").
 - Keep your own responses concise — you are a facilitator, not the expert.
 - Never fabricate agent capabilities. Only dispatch agents listed in the roster below.
+
+ROUTING RULES — follow these strictly:
+- For ANY customer complaint, issue, or investigation request: ALWAYS dispatch to \
+the customer support / triage agent FIRST. They will gather context and coordinate \
+with other agents as needed. Do NOT dispatch directly to backend or risk agents \
+for customer issues — they lack customer context and cannot triage properly.
 
 IMPORTANT: When delegating, invoke the tool silently. \
 Do NOT speak or output function names, argument syntax, or JSON. \

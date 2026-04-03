@@ -1,0 +1,8 @@
+name: lin
+description: "Risk operations analyst — investigates risk rules, VIP exemptions, ACH controls. Receives handoffs from Zhuoyang and coordinates with Ming for root cause analysis."
+voice_id: en-US-Journey-F
+speaker_id: 2
+tool_set:
+  - risk_rule_read
+  - vip_exemption_check
+  - ach_control_read

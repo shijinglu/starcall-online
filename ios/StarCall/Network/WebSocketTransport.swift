@@ -45,7 +45,12 @@ final class WebSocketTransport: NSObject {
     // MARK: - Init
 
     override init() {
-        urlSession = URLSession(configuration: .default)
+        let config = URLSessionConfiguration.default
+        // Agents can take minutes to complete multi-agent chains.
+        // Prevent URLSession from killing the WebSocket during long
+        // silent periods while agents are working in the background.
+        config.timeoutIntervalForRequest = 3600
+        urlSession = URLSession(configuration: config)
         super.init()
     }
 

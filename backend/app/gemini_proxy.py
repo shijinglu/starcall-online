@@ -11,6 +11,7 @@ from app.gemini_tools import (  # noqa: F401
     DISPATCH_AGENT_TOOL,
     MODERATOR_PERSONA,
     RESUME_AGENT_TOOL,
+    build_dispatch_agent_tool,
     build_system_prompt,
 )
 from app.transcript_buffer import TranscriptBuffer
@@ -101,7 +102,7 @@ class GeminiLiveProxy:
             tools=[
                 types.Tool(
                     function_declarations=[
-                        types.FunctionDeclaration(**DISPATCH_AGENT_TOOL),
+                        types.FunctionDeclaration(**build_dispatch_agent_tool(self._registry)),
                         types.FunctionDeclaration(**RESUME_AGENT_TOOL),
                     ]
                 )
@@ -114,6 +115,15 @@ class GeminiLiveProxy:
                 sliding_window=types.SlidingWindow(target_tokens=40000),
             ),
             session_resumption=types.SessionResumptionConfig(),
+            realtime_input_config=types.RealtimeInputConfig(
+                automatic_activity_detection=types.AutomaticActivityDetection(
+                    start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_HIGH,
+                    end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_LOW,
+                    prefix_padding_ms=300,
+                    silence_duration_ms=1000,
+                ),
+                activity_handling=types.ActivityHandling.NO_INTERRUPTION,
+            ),
         )
         if not conv_session.listener_mode:
             config_kwargs["output_audio_transcription"] = types.AudioTranscriptionConfig()

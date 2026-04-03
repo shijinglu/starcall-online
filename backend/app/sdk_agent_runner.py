@@ -19,6 +19,7 @@ from claude_agent_sdk import (
     query,
 )
 
+from app.a2a.ask_agent_tool import build_ask_agent_server
 from app.config import BACKEND_DIR, CLAUDE_MODEL, MAX_AGENT_BUDGET_USD, MAX_TOOL_ROUNDS
 
 if TYPE_CHECKING:
@@ -60,9 +61,17 @@ class SDKAgentRunner:
         if entry is None:
             raise ValueError(f"Unknown agent: {agent_session.agent_name}")
 
+        # Build a per-agent ask_agent MCP server with peer names from registry
+        peer_names = [
+            name for name in self._registry.entries
+            if name != agent_session.agent_name
+        ]
+        ask_server = build_ask_agent_server(agent_session.agent_name, peer_names)
+
         options = ClaudeAgentOptions(
             model=CLAUDE_MODEL,
             system_prompt=entry.system_prompt,
+            mcp_servers={"ask_agent": ask_server},
             max_turns=MAX_TOOL_ROUNDS,
             max_budget_usd=MAX_AGENT_BUDGET_USD,
             permission_mode="bypassPermissions",
@@ -115,6 +124,10 @@ class SDKAgentRunner:
                                 agent,
                                 block.text[:300],
                             )
+                            # Accumulate text so we have output even on error_max_turns
+                            if full_text:
+                                full_text += "\n\n"
+                            full_text += block.text
                             if on_text:
                                 await on_text(agent, block.text)
                         elif isinstance(block, ToolUseBlock):
@@ -144,6 +157,9 @@ class SDKAgentRunner:
                     agent_session.sdk_session_id = message.session_id
                     if message.subtype == "success" and message.result:
                         full_text = message.result
+                    elif not full_text:
+                        # No accumulated text at all — use result if available
+                        full_text = message.result or ""
                     logger.info(
                         "[%s] result: subtype=%s turns=%d cost=$%.4f "
                         "result_len=%d text=%s",
